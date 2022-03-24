@@ -1,4 +1,4 @@
-# T-distributed Stochastic Neighbor Embedding
+# Exploring Parallel T-distributed Stochastic Neighbor Embedding
 
 ## Summary
 
