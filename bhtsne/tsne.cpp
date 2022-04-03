@@ -680,7 +680,7 @@ static double randn() {
 
 // Function that loads data from a t-SNE file
 // Note: this function does a malloc that should be freed elsewhere
-bool TSNE::load_data(char* fileName, float** data, int* n_data, int* dim_data) {
+bool TSNE::load_data(const char* fileName, float** data, int* dataN, int* dataDim) {
 
 	// Open file, read first 2 integers, allocate memory, and read the data
     FILE *file;
@@ -688,13 +688,13 @@ bool TSNE::load_data(char* fileName, float** data, int* n_data, int* dim_data) {
 		printf("Error: could not open data file: %s.\n", fileName);
 		return false;
 	}
-	fread(n_data, sizeof(int), 1, file);											// number of datapoints
-	fread(dim_data, sizeof(int), 1, file);											// original dimensionality
-	*data = (float*) malloc(*dim_data * *n_data * sizeof(float));
+	fread(dataN, sizeof(int), 1, file);											// number of datapoints
+	fread(dataDim, sizeof(int), 1, file);											// original dimensionality
+	*data = (float*) malloc(*dataDim * *dataN * sizeof(float));
     if(*data == NULL) { printf("Memory allocation failed!\n"); exit(1); }
-    fread(*data, sizeof(float), *n_data * *dim_data, file);                               // the data
+    fread(*data, sizeof(float), *dataN * *dataDim, file);                               // the data
 	fclose(file);
-	printf("Read the %i x %i data matrix successfully!\n", *n_data, *dim_data);
+	printf("Read the %i x %i data matrix successfully!\n", *dataN, *dataDim);
 	return true;
 }
 
