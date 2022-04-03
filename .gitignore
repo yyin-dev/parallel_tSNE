@@ -1,3 +1,8 @@
+
+# Created by https://www.toptal.com/developers/gitignore/api/c++,macos
+# Edit at https://www.toptal.com/developers/gitignore?templates=c++,macos
+
+### C++ ###
 # Prerequisites
 *.d
 
@@ -30,3 +35,43 @@
 *.exe
 *.out
 *.app
+
+### macOS ###
+# General
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Icon must end with two \r
+Icon
+
+
+# Thumbnails
+._*
+
+# Files that might appear in the root of a volume
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# Directories potentially created on remote AFP share
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+
+# VS Code
+.vscode/
+
+# PDF
+*.pdf
+
+# Java
+*.class
+
+# End of https://www.toptal.com/developers/gitignore/api/c++,macos
