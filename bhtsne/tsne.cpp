@@ -678,9 +678,9 @@ static double randn() {
 	return x;
 }
 
-// Function that loads data from a t-SNE file
+// Function that loads data from our custom binary file
 // Note: this function does a malloc that should be freed elsewhere
-bool TSNE::load_data(const char* fileName, float** data, int* dataN, int* dataDim) {
+bool TSNE::loadData(const char* fileName, float** data, int* dataN, int* dataDim) {
 
 	// Open file, read first 2 integers, allocate memory, and read the data
     FILE *file;
@@ -697,24 +697,26 @@ bool TSNE::load_data(const char* fileName, float** data, int* dataN, int* dataDi
     // the data
     fread(*data, sizeof(float), *dataN * *dataDim, file);
 	fclose(file);
-	printf("Read the %i x %i data matrix successfully!\n", *dataN, *dataDim);
+	printf("Read %i x %i data matrix successfully!\n", *dataN, *dataDim);
 	return true;
 }
 
-// Function that saves map to a t-SNE file
-void TSNE::save_data(double* data, int* landmarks, double* costs, int n, int d) {
+// Function that saves map to our custom binary file
+void TSNE::saveData(const char* fileName, float* data, int dataN, int dataDim) {
+    int fileNameLen = strlen(fileName);
+    char *outFilePath = (char *)malloc(fileNameLen + 28);
+    sprintf(outFilePath, "../outputs/tsne_%s_%d.bin", fileName, dataDim);
 
-	// Open file, write first 2 integers and then the data
-	FILE *h;
-	if((h = fopen("result.dat", "w+b")) == NULL) {
-		printf("Error: could not open data file.\n");
+    // Open file, write first 2 integers and then the data
+	FILE *file;
+	if((file = fopen(outFilePath, "w+b")) == NULL) {
+		printf("Error: could not open data file: %s\n", outFilePath);
 		return;
 	}
-	fwrite(&n, sizeof(int), 1, h);
-	fwrite(&d, sizeof(int), 1, h);
-    fwrite(data, sizeof(double), n * d, h);
-	fwrite(landmarks, sizeof(int), n, h);
-    fwrite(costs, sizeof(double), n, h);
-    fclose(h);
-	printf("Wrote the %i x %i data matrix successfully!\n", n, d);
+	fwrite(&dataN, sizeof(int), 1, file);
+	fwrite(&dataDim, sizeof(int), 1, file);
+    fwrite(data, sizeof(float), dataN * dataDim, file);
+    fclose(file);
+    free(outFilePath);
+	printf("Wrote %i x %i data matrix successfully!\n", dataN, dataDim);
 }
