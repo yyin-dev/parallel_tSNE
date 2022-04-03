@@ -688,11 +688,14 @@ bool TSNE::load_data(const char* fileName, float** data, int* dataN, int* dataDi
 		printf("Error: could not open data file: %s.\n", fileName);
 		return false;
 	}
-	fread(dataN, sizeof(int), 1, file);											// number of datapoints
-	fread(dataDim, sizeof(int), 1, file);											// original dimensionality
+    // number of datapoints
+	fread(dataN, sizeof(int), 1, file);	
+    // original dimensionality
+	fread(dataDim, sizeof(int), 1, file);
 	*data = (float*) malloc(*dataDim * *dataN * sizeof(float));
     if(*data == NULL) { printf("Memory allocation failed!\n"); exit(1); }
-    fread(*data, sizeof(float), *dataN * *dataDim, file);                               // the data
+    // the data
+    fread(*data, sizeof(float), *dataN * *dataDim, file);
 	fclose(file);
 	printf("Read the %i x %i data matrix successfully!\n", *dataN, *dataDim);
 	return true;

@@ -77,22 +77,14 @@ int main(int argc, const char *argv[]) {
   float *data;
   int rand_seed = 15618;
 
-  TSNE::load_data(inputFile, &data, &dataN, &dataDim);
+  bool dataLoaded = TSNE::load_data(inputFile, &data, &dataN, &dataDim);
 
   // set up timer
   auto compute_start = Clock::now();
   double compute_time = 0;
 
-  printf("data N = %d, data dim = %d\n", dataN, dataDim);
-
-  printf("first 10 data points: ");
-  for (int i = 0; i < 10; i++) {
-    printf("%0.4f, ", data[i]);
-  }
-  printf("\n");
-
     // Read the parameters and the dataset
-  // if(TSNE::load_data("", &data, &origN, &D)) {
+  // if(dataLoaded) {
 
   //   // Now fire up the SNE implementation
   //   double* Y = (double*) malloc(N * no_dims * sizeof(double));
