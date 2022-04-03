@@ -69,13 +69,18 @@ int main(int argc, const char *argv[]) {
   _argv = argv + 1;
 
   const char *inputFile = getOptionString("-f", nullptr);
+  const int randSeed = getOptionInt("-r", 15618);
+  const int reducedDim = getOptionInt("-d", 2);
+  // original default args
+  const int maxIter = getOptionInt("-i", 1000);
+  const float perplexity = getOptionFloat("-p", 50.f);
+  const float theta = getOptionFloat("-t", 0.5f);
 
   assert(inputFile != nullptr && "Please specify input file");
 
   // Define some variables
   int dataN, dataDim;
   float *data;
-  int rand_seed = 15618;
 
   // load dataset
   bool dataLoaded = TSNE::loadData(inputFile, &data, &dataN, &dataDim);
@@ -86,25 +91,20 @@ int main(int argc, const char *argv[]) {
   auto compute_start = Clock::now();
   double compute_time = 0;
 
-  //   // Now fire up the SNE implementation
-  //   double* Y = (double*) malloc(N * no_dims * sizeof(double));
-  //   double* costs = (double*) calloc(N, sizeof(double));
-  //       if(Y == NULL || costs == NULL) { printf("Memory allocation failed!\n"); exit(1); }
-  //   TSNE::run(data, N, D, Y, no_dims, perplexity, theta, rand_seed, false, max_iter, 250, 250);
-
-  //   // Save the results
-  //   TSNE::save_data(Y, landmarks, costs, N, no_dims);
-
-  //   // Clean up the memory
-  //   free(data); data = NULL;
-  //   free(Y); Y = NULL;
-  //   free(costs); costs = NULL;
+  // Now fire up the SNE implementation
+  float* dimReducedData = (float*) malloc(dataN * reducedDim * sizeof(float));
+  TSNE::run(data, dataN, dataDim, dimReducedData,
+            reducedDim, perplexity, theta, randSeed, false, maxIter, 250, 250);
 
   compute_time += duration_cast<dsec>(Clock::now() - compute_start).count();
   printf("Computation Time: %lf.\n", compute_time);
 
-  // write result back to file
+  // save result to file
   char* cleanFileName = getOutputFileName(inputFile);
-  TSNE::saveData(cleanFileName, data, dataN, dataDim);
+  TSNE::saveData(cleanFileName, dimReducedData, dataN, reducedDim);
   free(cleanFileName);
+
+  // Clean up the memory
+  free(data); data = NULL;
+  free(dimReducedData); dimReducedData = NULL;
 }

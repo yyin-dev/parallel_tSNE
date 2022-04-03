@@ -8,7 +8,7 @@ import numpy as np
 from matplotlib import pyplot as plt
 
 def pack_bin_file(data, prefix):
-  with open(f"{prefix}_{data.shape[0]}_{data.shape[1]}.bin", "wb") as file:
+  with open(f"{prefix}_{data.shape[0]}x{data.shape[1]}.bin", "wb") as file:
     file.write(struct.pack('2i', *data.shape))
     file.write(data.astype(np.float32).tobytes())
 
