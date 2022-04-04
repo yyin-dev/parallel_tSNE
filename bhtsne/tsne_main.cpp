@@ -62,7 +62,50 @@ char* getOutputFileName(const char* inputFilePath) {
   return cleanInputFileName;
 }
 
-// Function that runs the Barnes-Hut implementation of t-SNE
+// Function that loads data from our custom binary file
+// Note: this function does a malloc that should be freed elsewhere
+bool loadData(const char* fileName, double** data, int* dataN, int* dataDim) {
+
+  // Open file, read first 2 integers, allocate memory, and read the data
+    FILE *file;
+  if((file = fopen(fileName, "r+b")) == NULL) {
+    printf("Error: could not open data file: %s.\n", fileName);
+    return false;
+  }
+    // number of datapoints
+  fread(dataN, sizeof(int), 1, file); 
+    // original dimensionality
+  fread(dataDim, sizeof(int), 1, file);
+  *data = (double*) malloc(*dataDim * *dataN * sizeof(double));
+    if(*data == NULL) { printf("Memory allocation failed!\n"); exit(1); }
+    // the data
+    fread(*data, sizeof(double), *dataN * *dataDim, file);
+  fclose(file);
+  printf("Read %i x %i data matrix successfully!\n", *dataN, *dataDim);
+  return true;
+}
+
+// Function that saves map to our custom binary file
+void saveData(const char* fileName, double* data, int dataN, int dataDim) {
+    int fileNameLen = strlen(fileName);
+    char *outFilePath = (char *)malloc(fileNameLen + 28);
+    sprintf(outFilePath, "../outputs/tsne_%s_%d.bin", fileName, dataDim);
+
+    // Open file, write first 2 integers and then the data
+  FILE *file;
+  if((file = fopen(outFilePath, "w+b")) == NULL) {
+    printf("Error: could not open data file: %s\n", outFilePath);
+    return;
+  }
+  fwrite(&dataN, sizeof(int), 1, file);
+  fwrite(&dataDim, sizeof(int), 1, file);
+    fwrite(data, sizeof(double), dataN * dataDim, file);
+    fclose(file);
+    free(outFilePath);
+  printf("Wrote %i x %i data matrix successfully!\n", dataN, dataDim);
+}
+
+// t-SNE runner
 int main(int argc, const char *argv[]) {
   // parse CLI args
   _argc = argc - 1;
@@ -71,6 +114,7 @@ int main(int argc, const char *argv[]) {
   const char *inputFile = getOptionString("-f", nullptr);
   const int randSeed = getOptionInt("-r", 15618);
   const int reducedDim = getOptionInt("-d", 2);
+  const int numThreads = getOptionInt("-n", 1);
   // original default args
   const int maxIter = getOptionInt("-i", 1000);
   const float perplexity = getOptionFloat("-p", 50.f);
@@ -80,28 +124,29 @@ int main(int argc, const char *argv[]) {
 
   // Define some variables
   int dataN, dataDim;
-  float *data;
+  double *data;
 
   // load dataset
-  bool dataLoaded = TSNE::loadData(inputFile, &data, &dataN, &dataDim);
+  bool dataLoaded = loadData(inputFile, &data, &dataN, &dataDim);
 
   assert(dataLoaded);
 
   // set up timer
   auto compute_start = Clock::now();
   double compute_time = 0;
+  TSNE TSNERunner;
 
   // Now fire up the SNE implementation
-  float* dimReducedData = (float*) malloc(dataN * reducedDim * sizeof(float));
-  TSNE::run(data, dataN, dataDim, dimReducedData,
-            reducedDim, perplexity, theta, randSeed, false, maxIter, 250, 250);
+  double* dimReducedData = (double*) malloc(dataN * reducedDim * sizeof(double));
+  TSNERunner.run(data, dataN, dataDim, dimReducedData,
+            reducedDim, perplexity, theta, numThreads, maxIter, 250, randSeed, false, 1);
 
   compute_time += duration_cast<dsec>(Clock::now() - compute_start).count();
   printf("Computation Time: %lf.\n", compute_time);
 
   // save result to file
   char* cleanFileName = getOutputFileName(inputFile);
-  TSNE::saveData(cleanFileName, dimReducedData, dataN, reducedDim);
+  saveData(cleanFileName, dimReducedData, dataN, reducedDim);
   free(cleanFileName);
 
   // Clean up the memory

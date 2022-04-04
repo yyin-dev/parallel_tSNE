@@ -1,6 +1,6 @@
 APP_NAME=bhtsne
 
-OBJS += sptree.o
+OBJS += splittree.o
 OBJS += tsne_main.o
 OBJS += tsne.o
 
