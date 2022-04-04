@@ -77,9 +77,9 @@ bool loadData(const char* fileName, double** data, int* dataN, int* dataDim) {
     // original dimensionality
   fread(dataDim, sizeof(int), 1, file);
   *data = (double*) malloc(*dataDim * *dataN * sizeof(double));
-    if(*data == NULL) { printf("Memory allocation failed!\n"); exit(1); }
-    // the data
-    fread(*data, sizeof(double), *dataN * *dataDim, file);
+  if(*data == NULL) { printf("Memory allocation failed!\n"); exit(1); }
+  // the data
+  fread(*data, sizeof(double), *dataN * *dataDim, file);
   fclose(file);
   printf("Read %i x %i data matrix successfully!\n", *dataN, *dataDim);
   return true;
@@ -99,9 +99,9 @@ void saveData(const char* fileName, double* data, int dataN, int dataDim) {
   }
   fwrite(&dataN, sizeof(int), 1, file);
   fwrite(&dataDim, sizeof(int), 1, file);
-    fwrite(data, sizeof(double), dataN * dataDim, file);
-    fclose(file);
-    free(outFilePath);
+  fwrite(data, sizeof(double), dataN * dataDim, file);
+  fclose(file);
+  free(outFilePath);
   printf("Wrote %i x %i data matrix successfully!\n", dataN, dataDim);
 }
 
