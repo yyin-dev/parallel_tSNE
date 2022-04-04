@@ -7,7 +7,7 @@
 
 
 // Checks whether a point lies in a cell
-bool Cell::containsPoint(double point[])
+bool Cell::containsPoint(float point[])
 {
     for (int i = 0; i< n_dims; ++i) {
         if (abs_d(center[i] - point[i]) > width[i]) {
@@ -19,22 +19,22 @@ bool Cell::containsPoint(double point[])
 
 
 // Default constructor for quadtree -- build tree, too!
-SplitTree::SplitTree(double* inp_data, int N, int no_dims)
+SplitTree::SplitTree(float* inp_data, int N, int no_dims)
 {
     QT_NO_DIMS = no_dims;
     num_children = 1 << no_dims;
 
     // Compute mean, width, and height of current map (boundaries of SplitTree)
-    double* mean_Y = new double[QT_NO_DIMS];
+    float* mean_Y = new float[QT_NO_DIMS];
     for (int d = 0; d < QT_NO_DIMS; d++) {
         mean_Y[d] = .0;
     }
 
-    double*  min_Y = new double[QT_NO_DIMS];
+    float*  min_Y = new float[QT_NO_DIMS];
     for (int d = 0; d < QT_NO_DIMS; d++) {
         min_Y[d] =  DBL_MAX;
     }
-    double*  max_Y = new double[QT_NO_DIMS];
+    float*  max_Y = new float[QT_NO_DIMS];
     for (int d = 0; d < QT_NO_DIMS; d++) {
         max_Y[d] = -DBL_MAX;
     }
@@ -48,9 +48,9 @@ SplitTree::SplitTree(double* inp_data, int N, int no_dims)
 
     }
 
-    double* width_Y = new double[QT_NO_DIMS];
+    float* width_Y = new float[QT_NO_DIMS];
     for (int d = 0; d < QT_NO_DIMS; d++) {
-        mean_Y[d] /= (double) N;
+        mean_Y[d] /= (float) N;
         width_Y[d] = max(max_Y[d] - mean_Y[d], mean_Y[d] - min_Y[d]) + 1e-5;
     }
 
@@ -61,7 +61,7 @@ SplitTree::SplitTree(double* inp_data, int N, int no_dims)
 }
 
 // Constructor for SplitTree with particular size and parent (do not fill the tree)
-SplitTree::SplitTree(SplitTree* inp_parent, double* inp_data, double* mean_Y, double* width_Y)
+SplitTree::SplitTree(SplitTree* inp_parent, float* inp_data, float* mean_Y, float* width_Y)
 {
     QT_NO_DIMS = inp_parent->QT_NO_DIMS;
     num_children = 1 << QT_NO_DIMS;
@@ -71,7 +71,7 @@ SplitTree::SplitTree(SplitTree* inp_parent, double* inp_data, double* mean_Y, do
 
 
 // Main initialization function
-void SplitTree::init(SplitTree* inp_parent, double* inp_data, double* mean_Y, double* width_Y)
+void SplitTree::init(SplitTree* inp_parent, float* inp_data, float* mean_Y, float* width_Y)
 {
     // parent = inp_parent;
     data = inp_data;
@@ -85,7 +85,7 @@ void SplitTree::init(SplitTree* inp_parent, double* inp_data, double* mean_Y, do
 
     index[0] = 0;
 
-    center_of_mass = new double[QT_NO_DIMS];
+    center_of_mass = new float[QT_NO_DIMS];
     for (int i = 0; i < QT_NO_DIMS; i++) {
         center_of_mass[i] = .0;
     }
@@ -106,15 +106,15 @@ SplitTree::~SplitTree()
 bool SplitTree::insert(int new_index)
 {
     // Ignore objects which do not belong in this quad tree
-    double* point = data + new_index * QT_NO_DIMS;
+    float* point = data + new_index * QT_NO_DIMS;
     if (!boundary.containsPoint(point)) {
         return false;
     }
 
     // Online update of cumulative size and center-of-mass
     cum_size++;
-    double mult1 = (double) (cum_size - 1) / (double) cum_size;
-    double mult2 = 1.0 / (double) cum_size;
+    float mult1 = (float) (cum_size - 1) / (float) cum_size;
+    float mult2 = 1.0 / (float) cum_size;
     for (int d = 0; d < QT_NO_DIMS; d++) {
         center_of_mass[d] = center_of_mass[d] * mult1 + mult2 * point[d];
     }
@@ -174,7 +174,7 @@ int *get_bits(int n, int bitswanted){
 void SplitTree::subdivide() {
 
     // Create children
-    double* new_centers = new double[2 * QT_NO_DIMS];
+    float* new_centers = new float[2 * QT_NO_DIMS];
     for(int i = 0; i < QT_NO_DIMS; ++i) {
         new_centers[i*2]     = boundary.center[i] - .5 * boundary.width[i];
         new_centers[i*2 + 1] = boundary.center[i] + .5 * boundary.width[i];
@@ -183,8 +183,8 @@ void SplitTree::subdivide() {
     for (int i = 0; i < num_children; ++i) {
         int *bits = get_bits(i, QT_NO_DIMS);
 
-        double* mean_Y = new double[QT_NO_DIMS];
-        double* width_Y = new double[QT_NO_DIMS];
+        float* mean_Y = new float[QT_NO_DIMS];
+        float* width_Y = new float[QT_NO_DIMS];
 
         // fill the means and width
         for (int d = 0; d < QT_NO_DIMS; d++) {
@@ -229,32 +229,32 @@ void SplitTree::fill(int N)
 
 
 // Compute non-edge forces using Barnes-Hut algorithm
-void SplitTree::computeNonEdgeForces(int point_index, double theta, double* neg_f, double* sum_Q)
+void SplitTree::computeNonEdgeForces(int point_index, float theta, float* neg_f, float* sum_Q)
 {
     // Make sure that we spend no time on empty nodes or self-interactions
     if (cum_size == 0 || (is_leaf && size == 1 && index[0] == point_index)) {
         return;
     }
     // Compute distance between point and center-of-mass
-    double D = .0;
+    float D = .0;
     int ind = point_index * QT_NO_DIMS;
 
     for (int d = 0; d < QT_NO_DIMS; d++) {
-        double t  = data[ind + d] - center_of_mass[d];
+        float t  = data[ind + d] - center_of_mass[d];
         D += t * t;
     }
 
     // Check whether we can use this node as a "summary"
-    double m = -1;
+    float m = -1;
     for (int i = 0; i < QT_NO_DIMS; ++i) {
         m = max(m, boundary.width[i]);
     }
     if (is_leaf || m / sqrt(D) < theta) {
 
         // Compute and add t-SNE force between point and current node
-        double Q = 1.0 / (1.0 + D);
+        float Q = 1.0 / (1.0 + D);
         *sum_Q += cum_size * Q;
-        double mult = cum_size * Q * Q;
+        float mult = cum_size * Q * Q;
         for (int d = 0; d < QT_NO_DIMS; d++) {
             neg_f[d] += mult * (data[ind + d] - center_of_mass[d]);
         }

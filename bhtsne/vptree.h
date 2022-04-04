@@ -26,13 +26,13 @@ class DataPoint
     int _ind;
 
 public:
-    double* _x;
+    float* _x;
     DataPoint() {
         _D = 1;
         _ind = -1;
         _x = NULL;
     }
-    DataPoint(int D, int ind, double* x) {
+    DataPoint(int D, int ind, float* x) {
         _D = D;
         _ind = ind;
         _x = x;
@@ -55,19 +55,19 @@ public:
     }
     int index() const { return _ind; }
     int dimensionality() const { return _D; }
-    double x(int d) const { return _x[d]; }
+    float x(int d) const { return _x[d]; }
 };
 
-double euclidean_distance_squared(const DataPoint &t1, const DataPoint &t2) {
-    double dd = .0;
+float euclidean_distance_squared(const DataPoint &t1, const DataPoint &t2) {
+    float dd = .0;
     for (int d = 0; d < t1.dimensionality(); d++) {
-        double t = (t1.x(d) - t2.x(d));
+        float t = (t1.x(d) - t2.x(d));
         dd += t * t;
     }
     return dd;
 }
 
-template<typename T, double (*distance)( const DataPoint&, const DataPoint&)>
+template<typename T, float (*distance)( const DataPoint&, const DataPoint&)>
 class VpTree
 {
 public:
@@ -87,14 +87,14 @@ public:
     }
 
     // Function that uses the tree to find the k nearest neighbors of target
-    void search(const T& target, int k, std::vector<T>* results, std::vector<double>* distances)
+    void search(const T& target, int k, std::vector<T>* results, std::vector<float>* distances)
     {
 
         // Use a priority queue to store intermediate results on
         std::priority_queue<HeapItem> heap;
 
         // Variable that tracks the distance to the farthest point in our results
-        double tau = DBL_MAX;
+        float tau = DBL_MAX;
 
         // Perform the searcg
         search(_root, target, k, heap, tau);
@@ -119,7 +119,7 @@ private:
     struct Node
     {
         int index;              // index of point in node
-        double threshold;       // radius(?)
+        float threshold;       // radius(?)
         Node* left;             // points closer by than threshold
         Node* right;            // points farther away than threshold
 
@@ -135,10 +135,10 @@ private:
 
     // An item on the intermediate result queue
     struct HeapItem {
-        HeapItem( int index, double dist) :
+        HeapItem( int index, float dist) :
             index(index), dist(dist) {}
         int index;
-        double dist;
+        float dist;
         bool operator<(const HeapItem& o) const {
             return dist < o.dist;
         }
@@ -168,7 +168,7 @@ private:
         if (upper - lower > 1) {      // if we did not arrive at leaf yet
 
             // Choose an arbitrary point and move it to the start
-            int i = (int) ((double)rand() / RAND_MAX * (upper - lower - 1)) + lower;
+            int i = (int) ((float)rand() / RAND_MAX * (upper - lower - 1)) + lower;
             std::swap(_items[lower], _items[i]);
 
             // Partition around the median distance
@@ -192,12 +192,12 @@ private:
     }
 
     // Helper function that searches the tree
-    void search(Node* node, const T& target, unsigned int k, std::priority_queue<HeapItem>& heap, double& tau)
+    void search(Node* node, const T& target, unsigned int k, std::priority_queue<HeapItem>& heap, float& tau)
     {
         if (node == NULL) return;    // indicates that we're done here
 
         // Compute distance between target and current node
-        double dist = distance(_items[node->index], target);
+        float dist = distance(_items[node->index], target);
 
         // If current node within radius tau
         if (dist < tau) {

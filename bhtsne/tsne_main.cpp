@@ -11,7 +11,7 @@
 
 using namespace std::chrono;
 typedef std::chrono::high_resolution_clock Clock;
-typedef std::chrono::duration<double> dsec;
+typedef std::chrono::duration<float> dsec;
 
 // Ref: 15-618 HW3 CLI Option Parser
 static int _argc;
@@ -64,7 +64,7 @@ char* getOutputFileName(const char* inputFilePath) {
 
 // Function that loads data from our custom binary file
 // Note: this function does a malloc that should be freed elsewhere
-bool loadData(const char* fileName, double** data, int* dataN, int* dataDim) {
+bool loadData(const char* fileName, float** data, int* dataN, int* dataDim) {
 
   // Open file, read first 2 integers, allocate memory, and read the data
     FILE *file;
@@ -76,17 +76,17 @@ bool loadData(const char* fileName, double** data, int* dataN, int* dataDim) {
   fread(dataN, sizeof(int), 1, file); 
     // original dimensionality
   fread(dataDim, sizeof(int), 1, file);
-  *data = (double*) malloc(*dataDim * *dataN * sizeof(double));
+  *data = (float*) malloc(*dataDim * *dataN * sizeof(float));
   if(*data == NULL) { printf("Memory allocation failed!\n"); exit(1); }
   // the data
-  fread(*data, sizeof(double), *dataN * *dataDim, file);
+  fread(*data, sizeof(float), *dataN * *dataDim, file);
   fclose(file);
   printf("Read %i x %i data matrix successfully!\n", *dataN, *dataDim);
   return true;
 }
 
 // Function that saves map to our custom binary file
-void saveData(const char* fileName, double* data, int dataN, int dataDim) {
+void saveData(const char* fileName, float* data, int dataN, int dataDim) {
     int fileNameLen = strlen(fileName);
     char *outFilePath = (char *)malloc(fileNameLen + 28);
     sprintf(outFilePath, "../outputs/tsne_%s_%d.bin", fileName, dataDim);
@@ -99,7 +99,7 @@ void saveData(const char* fileName, double* data, int dataN, int dataDim) {
   }
   fwrite(&dataN, sizeof(int), 1, file);
   fwrite(&dataDim, sizeof(int), 1, file);
-  fwrite(data, sizeof(double), dataN * dataDim, file);
+  fwrite(data, sizeof(float), dataN * dataDim, file);
   fclose(file);
   free(outFilePath);
   printf("Wrote %i x %i data matrix successfully!\n", dataN, dataDim);
@@ -124,7 +124,7 @@ int main(int argc, const char *argv[]) {
 
   // Define some variables
   int dataN, dataDim;
-  double *data;
+  float *data;
 
   // load dataset
   bool dataLoaded = loadData(inputFile, &data, &dataN, &dataDim);
@@ -133,11 +133,11 @@ int main(int argc, const char *argv[]) {
 
   // set up timer
   auto compute_start = Clock::now();
-  double compute_time = 0;
+  float compute_time = 0;
   TSNE TSNERunner;
 
   // Now fire up the SNE implementation
-  double* dimReducedData = (double*) malloc(dataN * reducedDim * sizeof(double));
+  float* dimReducedData = (float*) malloc(dataN * reducedDim * sizeof(float));
   TSNERunner.run(data, dataN, dataDim, dimReducedData,
             reducedDim, perplexity, theta, numThreads, maxIter, 250, randSeed, false, 1);
 
