@@ -143,7 +143,7 @@ int main(int argc, const char *argv[]) {
             reducedDim, perplexity, theta, numThreads, maxIter, 250, randSeed, false, verbose);
 
   compute_time += duration_cast<dsec>(Clock::now() - compute_start).count();
-  printf("Computation Time: %lf.\n", compute_time);
+  printf("Computation Time: %.4f seconds.\n", compute_time);
 
   // save result to file
   char* cleanFileName = getOutputFileName(inputFile);

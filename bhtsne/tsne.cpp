@@ -122,7 +122,7 @@ void TSNE::run(float* X, int N, int D, float* Y,
 
     compute_time += duration_cast<dsec>(Clock::now() - compute_start).count();
     if (verbose)
-        fprintf(stderr, "Done in %4.2f seconds (sparsity = %f)!\nLearning embedding...\n", compute_time, (float) row_P[N] / ((float) N * (float) N));
+        fprintf(stderr, "Done in %.4f seconds (sparsity = %f)!\nLearning embedding...\n", compute_time, (float) row_P[N] / ((float) N * (float) N));
 
     /*
         ======================
@@ -188,7 +188,7 @@ void TSNE::run(float* X, int N, int D, float* Y,
             if (iter == 0)
                 fprintf(stderr, "Iteration %d: error is %f\n", iter + 1, error);
             else {
-                fprintf(stderr, "Iteration %d: error is %f (50 iterations in %4.2f seconds)\n", iter + 1, error, time_elapsed - compute_time);
+                fprintf(stderr, "Iteration %d: error is %f (50 iterations in %.4f seconds)\n", iter + 1, error, time_elapsed - compute_time);
             }
             compute_time = time_elapsed;
         }
@@ -197,6 +197,11 @@ void TSNE::run(float* X, int N, int D, float* Y,
 
     if (final_error != NULL)
         *final_error = evaluateError(row_P, col_P, val_P, Y, N, no_dims, theta);
+
+    if (verbose) {
+        compute_time = duration_cast<dsec>(Clock::now() - compute_start).count();
+        printf("Fitting performed in %.4f seconds\n", compute_time);
+    }
 
     // Clean up memory
     free(dY);
