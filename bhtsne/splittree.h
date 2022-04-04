@@ -55,7 +55,7 @@ class SplitTree
 	int num_children;
 	std::vector<SplitTree*> children;
 public:
-	
+
 
 	SplitTree(double* inp_data, int N, int no_dims);
 	SplitTree(SplitTree* inp_parent, double* inp_data, double* mean_Y, double* width_Y);
@@ -65,7 +65,7 @@ public:
 	void subdivide();
 	void computeNonEdgeForces(int point_index, double theta, double* neg_f, double* sum_Q);
 private:
-	
+
 	void init(SplitTree* inp_parent, double* inp_data, double* mean_Y, double* width_Y);
 	void fill(int N);
 };

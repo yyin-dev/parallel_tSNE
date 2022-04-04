@@ -8,7 +8,7 @@
 
 // Checks whether a point lies in a cell
 bool Cell::containsPoint(double point[])
-{   
+{
     for (int i = 0; i< n_dims; ++i) {
         if (abs_d(center[i] - point[i]) > width[i]) {
             return false;
@@ -20,21 +20,21 @@ bool Cell::containsPoint(double point[])
 
 // Default constructor for quadtree -- build tree, too!
 SplitTree::SplitTree(double* inp_data, int N, int no_dims)
-{   
+{
     QT_NO_DIMS = no_dims;
     num_children = 1 << no_dims;
 
     // Compute mean, width, and height of current map (boundaries of SplitTree)
-    double* mean_Y = new double[QT_NO_DIMS]; 
+    double* mean_Y = new double[QT_NO_DIMS];
     for (int d = 0; d < QT_NO_DIMS; d++) {
         mean_Y[d] = .0;
     }
 
-    double*  min_Y = new double[QT_NO_DIMS]; 
+    double*  min_Y = new double[QT_NO_DIMS];
     for (int d = 0; d < QT_NO_DIMS; d++) {
-        min_Y[d] =  DBL_MAX;  
-    } 
-    double*  max_Y = new double[QT_NO_DIMS]; 
+        min_Y[d] =  DBL_MAX;
+    }
+    double*  max_Y = new double[QT_NO_DIMS];
     for (int d = 0; d < QT_NO_DIMS; d++) {
         max_Y[d] = -DBL_MAX;
     }
@@ -48,10 +48,10 @@ SplitTree::SplitTree(double* inp_data, int N, int no_dims)
 
     }
 
-    double* width_Y = new double[QT_NO_DIMS]; 
+    double* width_Y = new double[QT_NO_DIMS];
     for (int d = 0; d < QT_NO_DIMS; d++) {
         mean_Y[d] /= (double) N;
-        width_Y[d] = max(max_Y[d] - mean_Y[d], mean_Y[d] - min_Y[d]) + 1e-5;    
+        width_Y[d] = max(max_Y[d] - mean_Y[d], mean_Y[d] - min_Y[d]) + 1e-5;
     }
 
     // Construct SplitTree
@@ -62,23 +62,23 @@ SplitTree::SplitTree(double* inp_data, int N, int no_dims)
 
 // Constructor for SplitTree with particular size and parent (do not fill the tree)
 SplitTree::SplitTree(SplitTree* inp_parent, double* inp_data, double* mean_Y, double* width_Y)
-{   
+{
     QT_NO_DIMS = inp_parent->QT_NO_DIMS;
     num_children = 1 << QT_NO_DIMS;
-    
+
     init(inp_parent, inp_data, mean_Y, width_Y);
 }
 
 
 // Main initialization function
 void SplitTree::init(SplitTree* inp_parent, double* inp_data, double* mean_Y, double* width_Y)
-{   
+{
     // parent = inp_parent;
     data = inp_data;
     is_leaf = true;
     size = 0;
     cum_size = 0;
-    
+
     boundary.center = mean_Y;
     boundary.width  = width_Y;
     boundary.n_dims = QT_NO_DIMS;
@@ -94,7 +94,7 @@ void SplitTree::init(SplitTree* inp_parent, double* inp_data, double* mean_Y, do
 
 // Destructor for SplitTree
 SplitTree::~SplitTree()
-{   
+{
     for(unsigned int i = 0; i != children.size(); i++) {
         delete children[i];
     }
@@ -104,7 +104,7 @@ SplitTree::~SplitTree()
 
 // Insert a point into the SplitTree
 bool SplitTree::insert(int new_index)
-{   
+{
     // Ignore objects which do not belong in this quad tree
     double* point = data + new_index * QT_NO_DIMS;
     if (!boundary.containsPoint(point)) {
@@ -150,7 +150,7 @@ bool SplitTree::insert(int new_index)
             return true;
         }
     }
-    
+
     // Otherwise, the point cannot be inserted (this should never happen)
     // printf("%s\n", "No no, this should not happen");
     return false;
@@ -181,20 +181,20 @@ void SplitTree::subdivide() {
     }
 
     for (int i = 0; i < num_children; ++i) {
-        int *bits = get_bits(i, QT_NO_DIMS);    
+        int *bits = get_bits(i, QT_NO_DIMS);
 
-        double* mean_Y = new double[QT_NO_DIMS]; 
-        double* width_Y = new double[QT_NO_DIMS]; 
+        double* mean_Y = new double[QT_NO_DIMS];
+        double* width_Y = new double[QT_NO_DIMS];
 
         // fill the means and width
         for (int d = 0; d < QT_NO_DIMS; d++) {
             mean_Y[d] = new_centers[d*2 + bits[d]];
             width_Y[d] = .5*boundary.width[d];
         }
-        
-        SplitTree* qt = new SplitTree(this, data, mean_Y, width_Y);        
+
+        SplitTree* qt = new SplitTree(this, data, mean_Y, width_Y);
         children.push_back(qt);
-        delete[] bits; 
+        delete[] bits;
     }
     delete[] new_centers;
 
@@ -211,7 +211,7 @@ void SplitTree::subdivide() {
         index[i] = -1;
         // }
     }
-    
+
     // This node is not leaf now
     // Empty it
     size = 0;

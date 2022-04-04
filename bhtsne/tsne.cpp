@@ -33,7 +33,7 @@
 #endif
 
 
-/*  
+/*
     Perform t-SNE
         X -- double matrix of size [N, D]
         D -- input dimensionality
@@ -60,7 +60,7 @@ void TSNE::run(double* X, int N, int D, double* Y,
 #endif
 #endif
 
-    /* 
+    /*
         ======================
             Step 1
         ======================
@@ -119,7 +119,7 @@ void TSNE::run(double* X, int N, int D, double* Y,
     if (verbose)
         fprintf(stderr, "Done in %4.2f seconds (sparsity = %f)!\nLearning embedding...\n", (float)(end - start) , (double) row_P[N] / ((double) N * (double) N));
 
-    /* 
+    /*
         ======================
             Step 2
         ======================
@@ -212,7 +212,7 @@ double TSNE::computeGradient(int* inp_row_P, int* inp_col_P, double* inp_val_P, 
 {
     // Construct quadtree on current map
     SplitTree* tree = new SplitTree(Y, N, no_dims);
-    
+
     // Compute all terms required for t-SNE gradient
     double* Q = new double[N];
     double* pos_f = new double[N * no_dims]();
@@ -221,10 +221,10 @@ double TSNE::computeGradient(int* inp_row_P, int* inp_col_P, double* inp_val_P, 
     double P_i_sum = 0.;
     double C = 0.;
 
-    if (pos_f == NULL || neg_f == NULL) { 
-        fprintf(stderr, "Memory allocation failed!\n"); exit(1); 
+    if (pos_f == NULL || neg_f == NULL) {
+        fprintf(stderr, "Memory allocation failed!\n"); exit(1);
     }
-    
+
 #ifdef _OPENMP
     #pragma omp parallel for reduction(+:P_i_sum,C)
 #endif
@@ -240,7 +240,7 @@ double TSNE::computeGradient(int* inp_row_P, int* inp_col_P, double* inp_val_P, 
                 double t = Y[ind1 + d] - Y[ind2 + d];
                 D += t * t;
             }
-            
+
             // Sometimes we want to compute error on the go
             if (eval_error) {
                 P_i_sum += inp_val_P[i];
@@ -253,13 +253,13 @@ double TSNE::computeGradient(int* inp_row_P, int* inp_col_P, double* inp_val_P, 
                 pos_f[ind1 + d] += D * (Y[ind1 + d] - Y[ind2 + d]);
             }
         }
-        
+
         // NoneEdge forces
         double this_Q = .0;
         tree->computeNonEdgeForces(n, theta, neg_f + n * no_dims, &this_Q);
         Q[n] = this_Q;
     }
-    
+
     double sum_Q = 0.;
     for (int i = 0; i < N; i++) {
         sum_Q += Q[i];
@@ -295,7 +295,7 @@ double TSNE::evaluateError(int* row_P, int* col_P, double* val_P, double* Y, int
     }
     delete tree;
     delete[] buff;
-    
+
     // Loop over all edges to compute t-SNE error
     double C = .0;
 #ifdef _OPENMP
@@ -314,7 +314,7 @@ double TSNE::evaluateError(int* row_P, int* col_P, double* val_P, double* Y, int
             C += val_P[i] * log((val_P[i] + FLT_MIN) / (Q + FLT_MIN));
         }
     }
-    
+
     return C;
 }
 
