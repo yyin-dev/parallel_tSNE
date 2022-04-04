@@ -15,6 +15,7 @@
 #include <cstring>
 #include <ctime>
 #include <iostream>
+#include <chrono>
 
 #ifdef _OPENMP
 #include <omp.h>
@@ -24,6 +25,10 @@
 #include "tsne.h"
 #include "vptree.h"
 #include "splittree.h"
+
+using namespace std::chrono;
+typedef std::chrono::high_resolution_clock Clock;
+typedef std::chrono::duration<float> dsec;
 
 
 #ifdef _OPENMP
@@ -70,8 +75,8 @@ void TSNE::run(float* X, int N, int D, float* Y,
         fprintf(stderr, "Using no_dims = %d, perplexity = %f, and theta = %f\n", no_dims, perplexity, theta);
 
     // Set learning parameters
-    float total_time = .0;
-    time_t start, end;
+    // set up timer
+    float compute_time = 0.;
     int stop_lying_iter = n_iter_early_exag, mom_switch_iter = n_iter_early_exag;
     float momentum = .5, final_momentum = .8;
     float eta = learning_rate;
@@ -89,7 +94,7 @@ void TSNE::run(float* X, int N, int D, float* Y,
     if (verbose)
         fprintf(stderr, "Computing input similarities...\n");
 
-    start = time(0);
+    auto compute_start = Clock::now();
     zeroMean(X, N, D);
     float max_X = .0;
     for (int i = 0; i < N * D; i++) {
@@ -115,9 +120,9 @@ void TSNE::run(float* X, int N, int D, float* Y,
         val_P[i] /= sum_P;
     }
 
-    end = time(0);
+    compute_time += duration_cast<dsec>(Clock::now() - compute_start).count();
     if (verbose)
-        fprintf(stderr, "Done in %4.2f seconds (sparsity = %f)!\nLearning embedding...\n", (float)(end - start) , (float) row_P[N] / ((float) N * (float) N));
+        fprintf(stderr, "Done in %4.2f seconds (sparsity = %f)!\nLearning embedding...\n", compute_time, (float) row_P[N] / ((float) N * (float) N));
 
     /*
         ======================
@@ -145,7 +150,8 @@ void TSNE::run(float* X, int N, int D, float* Y,
     }
 
     // Perform main training loop
-    start = time(0);
+    compute_time = 0.;
+    compute_start = Clock::now();
     for (int iter = 0; iter < max_iter; iter++) {
 
         bool need_eval_error = (verbose && ((iter > 0 && iter % 50 == 0) || (iter == max_iter - 1)));
@@ -177,19 +183,17 @@ void TSNE::run(float* X, int N, int D, float* Y,
 
         // Print out progress
         if (need_eval_error) {
-            end = time(0);
+            float time_elapsed = duration_cast<dsec>(Clock::now() - compute_start).count();
 
             if (iter == 0)
                 fprintf(stderr, "Iteration %d: error is %f\n", iter + 1, error);
             else {
-                total_time += (float) (end - start);
-                fprintf(stderr, "Iteration %d: error is %f (50 iterations in %4.2f seconds)\n", iter + 1, error, (float) (end - start) );
+                fprintf(stderr, "Iteration %d: error is %f (50 iterations in %4.2f seconds)\n", iter + 1, error, time_elapsed - compute_time);
             }
-            start = time(0);
+            compute_time = time_elapsed;
         }
 
     }
-    end = time(0); total_time += (float) (end - start) ;
 
     if (final_error != NULL)
         *final_error = evaluateError(row_P, col_P, val_P, Y, N, no_dims, theta);
@@ -202,9 +206,6 @@ void TSNE::run(float* X, int N, int D, float* Y,
     free(row_P); row_P = NULL;
     free(col_P); col_P = NULL;
     free(val_P); val_P = NULL;
-
-    if (verbose)
-        fprintf(stderr, "Fitting performed in %4.2f seconds.\n", total_time);
 }
 
 // Compute gradient of the t-SNE cost function (using Barnes-Hut algorithm)

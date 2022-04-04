@@ -67,18 +67,18 @@ char* getOutputFileName(const char* inputFilePath) {
 bool loadData(const char* fileName, float** data, int* dataN, int* dataDim) {
 
   // Open file, read first 2 integers, allocate memory, and read the data
-    FILE *file;
+  FILE *file;
   if((file = fopen(fileName, "r+b")) == NULL) {
     printf("Error: could not open data file: %s.\n", fileName);
     return false;
   }
-    // number of datapoints
+  // number of datapoints
   fread(dataN, sizeof(int), 1, file); 
-    // original dimensionality
+  // original dimensionality
   fread(dataDim, sizeof(int), 1, file);
   *data = (float*) malloc(*dataDim * *dataN * sizeof(float));
   if(*data == NULL) { printf("Memory allocation failed!\n"); exit(1); }
-  // the data
+  // read the data
   fread(*data, sizeof(float), *dataN * *dataDim, file);
   fclose(file);
   printf("Read %i x %i data matrix successfully!\n", *dataN, *dataDim);
@@ -87,11 +87,11 @@ bool loadData(const char* fileName, float** data, int* dataN, int* dataDim) {
 
 // Function that saves map to our custom binary file
 void saveData(const char* fileName, float* data, int dataN, int dataDim) {
-    int fileNameLen = strlen(fileName);
-    char *outFilePath = (char *)malloc(fileNameLen + 28);
-    sprintf(outFilePath, "../outputs/tsne_%s_%d.bin", fileName, dataDim);
+  int fileNameLen = strlen(fileName);
+  char *outFilePath = (char *)malloc(fileNameLen + 28);
+  sprintf(outFilePath, "../outputs/tsne_%s_%d.bin", fileName, dataDim);
 
-    // Open file, write first 2 integers and then the data
+  // Open file, write first 2 integers and then the data
   FILE *file;
   if((file = fopen(outFilePath, "w+b")) == NULL) {
     printf("Error: could not open data file: %s\n", outFilePath);
@@ -115,6 +115,7 @@ int main(int argc, const char *argv[]) {
   const int randSeed = getOptionInt("-r", 15618);
   const int reducedDim = getOptionInt("-d", 2);
   const int numThreads = getOptionInt("-n", 1);
+  const int verbose = getOptionInt("-v", 1);
   // original default args
   const int maxIter = getOptionInt("-i", 1000);
   const float perplexity = getOptionFloat("-p", 50.f);
@@ -131,15 +132,15 @@ int main(int argc, const char *argv[]) {
 
   assert(dataLoaded);
 
-  // set up timer
+  // set up
+  float* dimReducedData = (float*) malloc(dataN * reducedDim * sizeof(float));
   auto compute_start = Clock::now();
   float compute_time = 0;
   TSNE TSNERunner;
 
   // Now fire up the SNE implementation
-  float* dimReducedData = (float*) malloc(dataN * reducedDim * sizeof(float));
   TSNERunner.run(data, dataN, dataDim, dimReducedData,
-            reducedDim, perplexity, theta, numThreads, maxIter, 250, randSeed, false, 1);
+            reducedDim, perplexity, theta, numThreads, maxIter, 250, randSeed, false, verbose);
 
   compute_time += duration_cast<dsec>(Clock::now() - compute_start).count();
   printf("Computation Time: %lf.\n", compute_time);
