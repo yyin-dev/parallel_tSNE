@@ -75,3 +75,9 @@ Temporary Items
 *.class
 
 # End of https://www.toptal.com/developers/gitignore/api/c++,macos
+
+# Python stuff
+.ipynb_checkpoints
+*.pyc
+*.npz
+*.npy

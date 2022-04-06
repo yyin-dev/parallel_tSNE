@@ -23,5 +23,5 @@ def visualize_tsne_result(tsne_embedded, labels=None, dot_size=8):
   sc = plt.scatter(tsne_embedded[:, 0], tsne_embedded[:, 1], alpha=0.8, s=dot_size,
               c=labels, cmap="plasma")
   legend1 = plt.legend(*sc.legend_elements(),
-                      loc="upper right", title="Classes")
+                      bbox_to_anchor=(1.04,1), loc="upper left", title="Classes")
   fig.add_artist(legend1)
