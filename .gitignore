@@ -81,3 +81,6 @@ Temporary Items
 *.pyc
 *.npz
 *.npy
+
+# our project
+outputs/**

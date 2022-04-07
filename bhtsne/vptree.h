@@ -96,7 +96,7 @@ public:
         // Variable that tracks the distance to the farthest point in our results
         float tau = DBL_MAX;
 
-        // Perform the searcg
+        // Perform the search
         search(_root, target, k, heap, tau);
 
         // Gather final results
@@ -192,7 +192,8 @@ private:
     }
 
     // Helper function that searches the tree
-    void search(Node* node, const T& target, unsigned int k, std::priority_queue<HeapItem>& heap, float& tau)
+    // [YY]: only modified `heap` and `tau`; seems impossible to parallelize
+    void search(const Node* node, const T& target, unsigned int k, std::priority_queue<HeapItem>& heap, float& tau)
     {
         if (node == NULL) return;    // indicates that we're done here
 

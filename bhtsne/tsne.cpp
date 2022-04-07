@@ -17,6 +17,9 @@
 #include <iostream>
 #include <chrono>
 
+// Ref: https://stackoverflow.com/a/13612520/9057530
+#define _OPENMP
+
 #ifdef _OPENMP
 #include <omp.h>
 #endif
@@ -60,9 +63,6 @@ void TSNE::run(float* X, int N, int D, float* Y,
 
 #ifdef _OPENMP
     omp_set_num_threads(NUM_THREADS(num_threads));
-#if _OPENMP >= 200805
-    omp_set_schedule(omp_sched_guided, 0);
-#endif
 #endif
 
     /*
@@ -108,9 +108,14 @@ void TSNE::run(float* X, int N, int D, float* Y,
     int* row_P; int* col_P; float* val_P;
 
     // Compute asymmetric pairwise input similarities
+    auto perplexity_start = Clock::now();
     computeGaussianPerplexity(X, N, D, &row_P, &col_P, &val_P, perplexity, (int) (3 * perplexity), verbose);
+    float perplexity_time = duration_cast<dsec>(Clock::now() - perplexity_start).count();
+    if (verbose)
+        fprintf(stderr, "Computing asymmetric pairwise similarities takes %.4f\n", perplexity_time);
 
     // Symmetrize input similarities
+    auto symmetrize_start = Clock::now();
     symmetrizeMatrix(&row_P, &col_P, &val_P, N);
     float sum_P = .0;
     for (int i = 0; i < row_P[N]; i++) {
@@ -119,6 +124,9 @@ void TSNE::run(float* X, int N, int D, float* Y,
     for (int i = 0; i < row_P[N]; i++) {
         val_P[i] /= sum_P;
     }
+    float symmetrize_time = duration_cast<dsec>(Clock::now() - symmetrize_start).count();
+    if (verbose)
+        fprintf(stderr, "Symmetrization takes %.4f\n", symmetrize_time);
 
     compute_time += duration_cast<dsec>(Clock::now() - compute_start).count();
     if (verbose)
@@ -152,9 +160,9 @@ void TSNE::run(float* X, int N, int D, float* Y,
     // Perform main training loop
     compute_time = 0.;
     compute_start = Clock::now();
+    const int eval_interval = 100;
     for (int iter = 0; iter < max_iter; iter++) {
-
-        bool need_eval_error = (verbose && ((iter > 0 && iter % 50 == 0) || (iter == max_iter - 1)));
+        bool need_eval_error = (verbose && ((iter > 0 && iter % eval_interval == 0) || (iter == max_iter - 1)));
 
         // Compute approximate gradient
         float error = computeGradient(row_P, col_P, val_P, Y, N, no_dims, dY, theta, need_eval_error);
@@ -188,11 +196,10 @@ void TSNE::run(float* X, int N, int D, float* Y,
             if (iter == 0)
                 fprintf(stderr, "Iteration %d: error is %f\n", iter + 1, error);
             else {
-                fprintf(stderr, "Iteration %d: error is %f (50 iterations in %.4f seconds)\n", iter + 1, error, time_elapsed - compute_time);
+                fprintf(stderr, "Iteration %d: error is %f (%d iterations in %.4f seconds)\n", iter + 1, error, eval_interval, time_elapsed - compute_time);
             }
             compute_time = time_elapsed;
         }
-
     }
 
     if (final_error != NULL)
@@ -351,18 +358,24 @@ void TSNE::computeGaussianPerplexity(float* X, int N, int D, int** _row_P, int**
     }
 
     // Build ball tree on data set
+    // This part is very fast
+    auto build_tree_start = Clock::now();
     VpTree<DataPoint, euclidean_distance_squared>* tree = new VpTree<DataPoint, euclidean_distance_squared>();
     std::vector<DataPoint> obj_X(N, DataPoint(D, -1, X));
     for (int n = 0; n < N; n++) {
         obj_X[n] = DataPoint(D, n, X + n * D);
     }
     tree->create(obj_X);
+    float build_tree_time = duration_cast<dsec>(Clock::now() - build_tree_start).count();
+    if (verbose)
+        fprintf(stderr, "Building tree takes %.4f\n", build_tree_time);
 
     // Loop over all points to find nearest neighbors
     if (verbose)
         fprintf(stderr, "Building tree...\n");
 
     int steps_completed = 0;
+    const int log_freq = 5;
 #ifdef _OPENMP
     #pragma omp parallel for
 #endif
@@ -443,7 +456,7 @@ void TSNE::computeGaussianPerplexity(float* X, int N, int D, int** _row_P, int**
 #endif
         ++steps_completed;
 
-        if (verbose && steps_completed % (N / 10) == 0)
+        if (verbose && steps_completed % (N / log_freq) == 0)
         {
 #ifdef _OPENMP
             #pragma omp critical

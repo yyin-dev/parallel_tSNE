@@ -227,7 +227,7 @@ void SplitTree::fill(int N)
     }
 }
 
-
+// [YY]: can parallelize by spawing new threads on tree edges (the last loop)
 // Compute non-edge forces using Barnes-Hut algorithm
 void SplitTree::computeNonEdgeForces(int point_index, float theta, float* neg_f, float* sum_Q)
 {
