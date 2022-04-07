@@ -255,21 +255,15 @@ void SplitTree::computeNonEdgeForces(int point_index, float theta, float* neg_f,
         float Q = 1.0 / (1.0 + D);
         float mult = cum_size * Q * Q;
         
-        #pragma omp critical
-        {
-            *sum_Q += cum_size * Q;
-            for (int d = 0; d < QT_NO_DIMS; d++) {
-                neg_f[d] += mult * (data[ind + d] - center_of_mass[d]);
-            }
+        *sum_Q += cum_size * Q;
+        for (int d = 0; d < QT_NO_DIMS; d++) {
+            neg_f[d] += mult * (data[ind + d] - center_of_mass[d]);
         }
     }
     else {
         // Recursively apply Barnes-Hut to children
         for (int i = 0; i < num_children; ++i) {
-            #pragma omp task
-            {
-                children[i]->computeNonEdgeForces(point_index, theta, neg_f, sum_Q);
-            }
+            children[i]->computeNonEdgeForces(point_index, theta, neg_f, sum_Q);
         }
     }
 }
