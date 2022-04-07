@@ -17,9 +17,6 @@
 #include <iostream>
 #include <chrono>
 
-// Ref: https://stackoverflow.com/a/13612520/9057530
-#define _OPENMP
-
 #ifdef _OPENMP
 #include <omp.h>
 #endif
@@ -239,7 +236,7 @@ float TSNE::computeGradient(int* inp_row_P, int* inp_col_P, float* inp_val_P, fl
     }
 
 #ifdef _OPENMP
-    #pragma omp parallel for reduction(+:P_i_sum,C)
+    // #pragma omp parallel for reduction(+:P_i_sum,C)
 #endif
     for (int n = 0; n < N; n++) {
         // Edge forces
@@ -269,7 +266,12 @@ float TSNE::computeGradient(int* inp_row_P, int* inp_col_P, float* inp_val_P, fl
 
         // NoneEdge forces
         float this_Q = .0;
-        tree->computeNonEdgeForces(n, theta, neg_f + n * no_dims, &this_Q);
+
+        #pragma omp parallel
+        {
+            #pragma omp single nowait
+            tree->computeNonEdgeForces(n, theta, neg_f + n * no_dims, &this_Q);
+        }
         Q[n] = this_Q;
     }
 
