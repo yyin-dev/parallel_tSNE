@@ -9,7 +9,7 @@ OBJS += $(OBJDIR)/tsne.o
 
 ISPC=ispc
 # note: change target to sse4 for SSE capable machines
-ISPCFLAGS=-O2 --target=avx1-i32x8 --arch=x86-64
+ISPCFLAGS=-O2 --target=avx2-i32x16 --arch=x86-64
 
 CXX = g++ -m64
 CXXFLAGS = -I. -Iobjs/ -O3 -Wall -Wextra -m64 -std=c++11 -ggdb -fopenmp -Wno-unknown-pragmas
