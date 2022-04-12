@@ -106,7 +106,7 @@ ISPC vectorized Euclidean distance computation
 
 |                                                              | AVX1 8x | AVX2 8x | AVX2 16x |
 | ------------------------------------------------------------ | ------- | ------- | -------- |
-| Step 1 (K Nearest Neighbors on Ball tree)47.9s with 1 thread and no vectorization | 3.30x   | 3.80x   | 4.02x    |
+| Step 1 (K Nearest Neighbors on Ball tree)<br />47.9s with 1 thread and no vectorization | 3.30x   | 3.80x   | 4.02x    |
 
 ## Issues and concerns
 
