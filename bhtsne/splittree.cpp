@@ -254,7 +254,7 @@ void SplitTree::computeNonEdgeForces(int point_index, float theta, float* neg_f,
         // Compute and add t-SNE force between point and current node
         float Q = 1.0 / (1.0 + D);
         float mult = cum_size * Q * Q;
-        
+
         *sum_Q += cum_size * Q;
         for (int d = 0; d < QT_NO_DIMS; d++) {
             neg_f[d] += mult * (data[ind + d] - center_of_mass[d]);
