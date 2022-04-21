@@ -66,7 +66,7 @@ public:
 	void computeNonEdgeForces(int point_index, float theta, float* neg_f, float* sum_Q);
 private:
 
-	void init(SplitTree* inp_parent, float* inp_data, float* mean_Y, float* width_Y);
+	void init(float* inp_data, float* mean_Y, float* width_Y);
 	void fill(int N);
 };
 
