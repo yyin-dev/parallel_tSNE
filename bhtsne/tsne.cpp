@@ -126,8 +126,8 @@ void TSNE::run(float* X, int N, int D, float* Y,
         fprintf(stderr, "Symmetrization takes %.4f\n", symmetrize_time);
 
     compute_time += duration_cast<dsec>(Clock::now() - compute_start).count();
-    if (verbose)
-        fprintf(stderr, "Done in %.4f seconds (sparsity = %f)!\nLearning embedding...\n", compute_time, (float) row_P[N] / ((float) N * (float) N));
+
+    fprintf(stderr, "Perplexity computed in %.4f seconds (sparsity = %f)!\nLearning embedding...\n", compute_time, (float) row_P[N] / ((float) N * (float) N));
 
     /*
         ======================
@@ -202,10 +202,8 @@ void TSNE::run(float* X, int N, int D, float* Y,
     if (final_error != NULL)
         *final_error = evaluateError(row_P, col_P, val_P, Y, N, no_dims, theta);
 
-    if (verbose) {
-        compute_time = duration_cast<dsec>(Clock::now() - compute_start).count();
-        printf("Fitting performed in %.4f seconds\n", compute_time);
-    }
+    compute_time = duration_cast<dsec>(Clock::now() - compute_start).count();
+    printf("Fitting performed in %.4f seconds\n", compute_time);
 
     // Clean up memory
     free(dY);

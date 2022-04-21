@@ -113,7 +113,7 @@ int main(int argc, const char *argv[]) {
   _argv = argv + 1;
 
   const char *inputFile = getOptionString("-f", nullptr);
-  const char *outputDir = getOptionString("-od", "../output");
+  const char *outputDir = getOptionString("-od", "../outputs");
   const int randSeed = getOptionInt("-r", 15618);
   const int reducedDim = getOptionInt("-d", 2);
   const int numThreads = getOptionInt("-n", 1);
