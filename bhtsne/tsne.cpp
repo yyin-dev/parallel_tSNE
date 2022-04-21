@@ -222,19 +222,19 @@ float TSNE::computeGradient(int* inp_row_P, int* inp_col_P, float* inp_val_P, fl
     SplitTree* tree = new SplitTree(Y, N, no_dims);
 
     // Compute all terms required for t-SNE gradient
-    float* Q = new float[N];
+    float sum_Q = 0.f;
     float* pos_f = new float[N * no_dims]();
     float* neg_f = new float[N * no_dims]();
 
-    float P_i_sum = 0.;
-    float C = 0.;
+    float P_i_sum = 0.f;
+    float C = 0.f;
 
     if (pos_f == NULL || neg_f == NULL) {
         fprintf(stderr, "Memory allocation failed!\n"); exit(1);
     }
 
 #ifdef _OPENMP
-    #pragma omp parallel for reduction(+:P_i_sum,C)
+    #pragma omp parallel for reduction(+:P_i_sum,C,sum_Q)
 #endif
     for (int n = 0; n < N; n++) {
         // Edge forces
@@ -266,12 +266,7 @@ float TSNE::computeGradient(int* inp_row_P, int* inp_col_P, float* inp_val_P, fl
         float this_Q = .0;
 
         tree->computeNonEdgeForces(n, theta, neg_f + n * no_dims, &this_Q);
-        Q[n] = this_Q;
-    }
-
-    float sum_Q = 0.;
-    for (int i = 0; i < N; i++) {
-        sum_Q += Q[i];
+        sum_Q += this_Q;
     }
 
     // Compute final t-SNE gradient
@@ -282,7 +277,6 @@ float TSNE::computeGradient(int* inp_row_P, int* inp_col_P, float* inp_val_P, fl
     delete tree;
     delete[] pos_f;
     delete[] neg_f;
-    delete[] Q;
 
     C += P_i_sum * log(sum_Q);
 
@@ -368,7 +362,7 @@ void TSNE::computeGaussianPerplexity(float* X, int N, int D, int** _row_P, int**
 
     // Loop over all points to find nearest neighbors
     if (verbose)
-        fprintf(stderr, "Building tree...\n");
+        fprintf(stderr, "Computing perplexity with nearest neighbors...\n");
 
     int steps_completed = 0;
     const int log_freq = 5;
