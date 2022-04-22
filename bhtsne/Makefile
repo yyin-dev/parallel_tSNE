@@ -7,7 +7,7 @@ OBJS += $(OBJDIR)/tsne_main.o
 OBJS += $(OBJDIR)/tsne.o
 
 CXX = g++ -m64
-CXXFLAGS = -I. -Iobjs/ -O3 -Wall -Wextra -m64 -std=c++11 -ggdb -fopenmp -Wno-unknown-pragmas
+CXXFLAGS = -I. -Iobjs/ -O3 -Wall -Wextra -m64 -std=c++11 -ggdb -Wno-unknown-pragmas
 
 default: $(APP_NAME)
 
