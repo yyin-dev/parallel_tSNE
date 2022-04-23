@@ -3,6 +3,7 @@ APP_NAME=bhtsne
 OBJDIR=objs
 
 OBJS += $(OBJDIR)/distance_ispc.o
+OBJS += $(OBJDIR)/gradient_ispc.o
 OBJS += $(OBJDIR)/splittree.o
 OBJS += $(OBJDIR)/tsne_main.o
 OBJS += $(OBJDIR)/tsne.o

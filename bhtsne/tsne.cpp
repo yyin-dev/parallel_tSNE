@@ -26,6 +26,8 @@
 #include "vptree.h"
 #include "splittree.h"
 
+#include "gradient_ispc.h"
+
 using namespace std::chrono;
 typedef std::chrono::high_resolution_clock Clock;
 typedef std::chrono::duration<float> dsec;
@@ -76,7 +78,6 @@ void TSNE::run(float* X, int N, int D, float* Y,
     float compute_time = 0.;
     int stop_lying_iter = n_iter_early_exag, mom_switch_iter = n_iter_early_exag;
     float momentum = .5, final_momentum = .8;
-    float eta = learning_rate;
 
     // Allocate some memory
     float* dY    = (float*) malloc(N * no_dims * sizeof(float));
@@ -164,14 +165,16 @@ void TSNE::run(float* X, int N, int D, float* Y,
         // Compute approximate gradient
         float error = computeGradient(row_P, col_P, val_P, Y, N, no_dims, dY, theta, need_eval_error);
 
-        for (int i = 0; i < N * no_dims; i++) {
-            // Update gains
-            gains[i] = (sign(dY[i]) != sign(uY[i])) ? (gains[i] + .2) : (gains[i] * .8 + .01);
+        // for (int i = 0; i < N * no_dims; i++) {
+        //     // Update gains
+        //     gains[i] = (sign(dY[i]) != sign(uY[i])) ? (gains[i] + .2) : (gains[i] * .8 + .01);
 
-            // Perform gradient update (with momentum and gains)
-            uY[i] = momentum * uY[i] - eta * gains[i] * dY[i];
-            Y[i] = Y[i] + uY[i];
-        }
+        //     // Perform gradient update (with momentum and gains)
+        //     uY[i] = momentum * uY[i] - eta * gains[i] * dY[i];
+        //     Y[i] = Y[i] + uY[i];
+        // }
+
+        ispc::gradientDescent(gains, dY, uY, Y, learning_rate, momentum, N * no_dims);
 
         // Make solution zero-mean
         zeroMean(Y, N, no_dims);
@@ -239,29 +242,39 @@ float TSNE::computeGradient(int* inp_row_P, int* inp_col_P, float* inp_val_P, fl
     for (int n = 0; n < N; n++) {
         // Edge forces
         int ind1 = n * no_dims;
-        for (int i = inp_row_P[n]; i < inp_row_P[n + 1]; i++) {
 
-            // Compute pairwise distance and Q-value
-            float D = .0;
-            int ind2 = inp_col_P[i] * no_dims;
-            for (int d = 0; d < no_dims; d++) {
-                float t = Y[ind1 + d] - Y[ind2 + d];
-                D += t * t;
-            }
+        if (no_dims == 2) {
+            // run the faster ISPC routine
+            float localP_i_sum, localC;
+            ispc::updateEdgeForces2d(inp_row_P[n], inp_row_P[n + 1], ind1,
+                inp_col_P, inp_val_P, Y, eval_error, pos_f,
+                &localP_i_sum, &localC);
+            P_i_sum += localP_i_sum;
+            C += localC;
+        } else {
+            // fall back to regular code
+            for (int i = inp_row_P[n]; i < inp_row_P[n + 1]; i++) {
+                // Compute pairwise distance and Q-value
+                float D = .0;
+                int ind2 = inp_col_P[i] * no_dims;
+                for (int d = 0; d < no_dims; d++) {
+                    float t = Y[ind1 + d] - Y[ind2 + d];
+                    D += t * t;
+                }
 
-            // Sometimes we want to compute error on the go
-            if (eval_error) {
-                P_i_sum += inp_val_P[i];
-                C += inp_val_P[i] * log((inp_val_P[i] + FLT_MIN) / ((1.0 / (1.0 + D)) + FLT_MIN));
-            }
+                // Sometimes we want to compute error on the go
+                if (eval_error) {
+                    P_i_sum += inp_val_P[i];
+                    C += inp_val_P[i] * log((inp_val_P[i] + FLT_MIN) / ((1.0 / (1.0 + D)) + FLT_MIN));
+                }
 
-            D = inp_val_P[i] / (1.0 + D);
-            // Sum positive force
-            for (int d = 0; d < no_dims; d++) {
-                pos_f[ind1 + d] += D * (Y[ind1 + d] - Y[ind2 + d]);
+                D = inp_val_P[i] / (1.0 + D);
+                // Sum positive force
+                for (int d = 0; d < no_dims; d++) {
+                    pos_f[ind1 + d] += D * (Y[ind1 + d] - Y[ind2 + d]);
+                }
             }
         }
-
         // NoneEdge forces
         float this_Q = .0;
 
@@ -270,9 +283,7 @@ float TSNE::computeGradient(int* inp_row_P, int* inp_col_P, float* inp_val_P, fl
     }
 
     // Compute final t-SNE gradient
-    for (int i = 0; i < N * no_dims; i++) {
-        dC[i] = pos_f[i] - (neg_f[i] / sum_Q);
-    }
+    ispc::computeFinalGradient(dC, pos_f, neg_f, sum_Q, N * no_dims);
 
     delete tree;
     delete[] pos_f;
