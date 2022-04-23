@@ -14,8 +14,8 @@
 #ifndef SPLITTREE_H
 #define SPLITREE_H
 
-static inline float min(float x, float y) { return (x <= y ? x : y); }
-static inline float max(float x, float y) { return (x <= y ? y : x); }
+// static inline float min(float x, float y) { return (x <= y ? x : y); }
+// static inline float max(float x, float y) { return (x <= y ? y : x); }
 static inline float abs_d(float x) { return (x <= 0 ? -x : x); }
 
 class Cell {

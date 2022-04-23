@@ -21,10 +21,21 @@
 #include <omp.h>
 #endif
 
-
 #include "tsne.h"
 #include "vptree.h"
 #include "splittree.h"
+
+
+#include "util/cuda_utils.h"
+#include "common.h"
+
+void SearchPerplexity(cublasHandle_t &handle,
+                    thrust::device_vector<float> &pij,
+                    thrust::device_vector<float> &squared_dist,
+                    const float perplexity_target,
+                    const float epsilon,
+                    const int num_points,
+                    const int num_near_neighbors);
 
 using namespace std::chrono;
 typedef std::chrono::high_resolution_clock Clock;
@@ -57,6 +68,11 @@ void TSNE::run(float* X, int N, int D, float* Y,
         if (verbose)
             fprintf(stderr, "Perplexity too large for the number of data points! Adjusting ...\n");
     }
+	
+	cublasHandle_t dense_handle;
+    CublasSafeCall(cublasCreate(&dense_handle));
+	thrust::device_vector<float> x, y;
+	SearchPerplexity(dense_handle, x, y, 0.0, 0.0, 1, 1);
 
 #ifdef _OPENMP
     omp_set_num_threads(NUM_THREADS(num_threads));

@@ -42,8 +42,8 @@ SplitTree::SplitTree(float* inp_data, int N, int no_dims)
     for (int n = 0; n < N; n++) {
         for (int d = 0; d < QT_NO_DIMS; d++) {
             mean_Y[d] += inp_data[n * QT_NO_DIMS + d];
-            min_Y[d] = min(min_Y[d], inp_data[n * QT_NO_DIMS + d]);
-            max_Y[d] = max(max_Y[d], inp_data[n * QT_NO_DIMS + d]);
+            min_Y[d] = std::min(min_Y[d], inp_data[n * QT_NO_DIMS + d]);
+            max_Y[d] = std::max(max_Y[d], inp_data[n * QT_NO_DIMS + d]);
         }
 
     }
@@ -51,7 +51,7 @@ SplitTree::SplitTree(float* inp_data, int N, int no_dims)
     float* width_Y = new float[QT_NO_DIMS];
     for (int d = 0; d < QT_NO_DIMS; d++) {
         mean_Y[d] /= (float) N;
-        width_Y[d] = max(max_Y[d] - mean_Y[d], mean_Y[d] - min_Y[d]) + 1e-5;
+        width_Y[d] = std::max(max_Y[d] - mean_Y[d], mean_Y[d] - min_Y[d]) + 1e-5;
     }
 
     // Construct SplitTree
@@ -247,7 +247,7 @@ void SplitTree::computeNonEdgeForces(int point_index, float theta, float* neg_f,
     // Check whether we can use this node as a "summary"
     float m = -1;
     for (int i = 0; i < QT_NO_DIMS; ++i) {
-        m = max(m, boundary.width[i]);
+        m = std::max(m, boundary.width[i]);
     }
     if (is_leaf || m / sqrt(D) < theta) {
 
