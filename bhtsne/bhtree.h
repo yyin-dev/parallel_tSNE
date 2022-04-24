@@ -1,4 +1,4 @@
-class GradientDescender {
+class BHTree {
    private:
     int step;
     int num_points;
@@ -37,7 +37,8 @@ class GradientDescender {
     float *d_output;  // device output array for visualization
 
    public:
-    GradientDescender(float *Ys, int num_points, int num_dims);
+    BHTree(float *Ys, int num_points, int num_dims);
+    ~BHTree();
 
     void compute_nonedge_forces(float theta);
 };

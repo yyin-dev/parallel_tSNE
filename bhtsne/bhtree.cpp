@@ -9,7 +9,7 @@
 
 inline void gpu_assert(cudaError_t code, const char *file, int line, bool abort = true) {
     if (code != cudaSuccess) {
-        fprintf(stderr, "GPUassert: %s %s %d\n", cudaGetErrorString(code), file, line);
+        printf("GPUassert: %s %s %d\n", cudaGetErrorString(code), file, line);
         if (abort) getchar();
     }
 }
@@ -26,7 +26,7 @@ void compute_forces(float *x, float *y, float *ax, float *ay, float *mass, int *
                     float *right, int n, float g);
 
 // Constructor
-GradientDescender::GradientDescender(float *Ys, int N, int output_dims) {
+BHTree::BHTree(float *Ys, int N, int output_dims) {
     // Allocate memory on host and device.
     num_points = N;
     num_nodes = 2 * N + 12000;
@@ -92,7 +92,48 @@ GradientDescender::GradientDescender(float *Ys, int N, int output_dims) {
     gpu_check(cudaMemcpy(d_ay, h_ay, 2 * num_points * sizeof(float), cudaMemcpyHostToDevice));
 }
 
-void GradientDescender::compute_nonedge_forces(float theta) {
+BHTree::~BHTree() {
+    printf("destructor\n");
+
+    delete h_left;
+    delete h_right;
+    delete h_bottom;
+    delete h_top;
+    delete[] h_mass;
+    delete[] h_x;
+    delete[] h_y;
+    delete[] h_ax;
+    delete[] h_ay;
+    delete[] h_child;
+    delete[] h_start;
+    delete[] h_sorted;
+    delete[] h_count;
+    delete[] h_output;
+
+    gpu_check(cudaFree(d_left));
+    gpu_check(cudaFree(d_right));
+    gpu_check(cudaFree(d_bottom));
+    gpu_check(cudaFree(d_top));
+
+    gpu_check(cudaFree(d_mass));
+    gpu_check(cudaFree(d_x));
+    gpu_check(cudaFree(d_y));
+    gpu_check(cudaFree(d_ax));
+    gpu_check(cudaFree(d_ay));
+
+    gpu_check(cudaFree(d_index));
+    gpu_check(cudaFree(d_child));
+    gpu_check(cudaFree(d_start));
+    gpu_check(cudaFree(d_sorted));
+    gpu_check(cudaFree(d_count));
+
+    gpu_check(cudaFree(d_mutex));
+    gpu_check(cudaFree(d_output));
+
+    cudaDeviceSynchronize();
+}
+
+void BHTree::compute_nonedge_forces(float theta) {
     reset_arrays(d_mutex, d_x, d_y, d_mass, d_count, d_start, d_sorted, d_child, d_index, d_left, d_right, d_bottom,
                  d_top, num_points, num_nodes);
     compute_bounding_box(d_mutex, d_x, d_y, d_left, d_right, d_bottom, d_top, num_points);
