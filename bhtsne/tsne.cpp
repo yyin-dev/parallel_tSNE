@@ -452,17 +452,18 @@ void TSNE::computeGaussianPerplexity(float* X, int N, int D, int** _row_P, int**
         }
 
         // Print progress
+        if (verbose) {
 #ifdef _OPENMP
         #pragma omp atomic
 #endif
         ++steps_completed;
 
-        if (verbose && steps_completed % (N / log_freq) == 0)
-        {
+        if (steps_completed % (N / log_freq) == 0) {
 #ifdef _OPENMP
             #pragma omp critical
 #endif
             fprintf(stderr, " - point %d of %d\n", steps_completed, N);
+            }
         }
     }
 
