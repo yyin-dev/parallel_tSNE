@@ -132,6 +132,8 @@ int main(int argc, const char *argv[]) {
 
   assert(dataLoaded);
 
+  srand(15618);
+
   // set up
   float* dimReducedData = (float*) malloc(dataN * reducedDim * sizeof(float));
   auto compute_start = Clock::now();

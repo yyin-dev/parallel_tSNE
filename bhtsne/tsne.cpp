@@ -16,6 +16,7 @@
 #include <ctime>
 #include <iostream>
 #include <chrono>
+#include <assert.h>
 
 #ifdef _OPENMP
 #include <omp.h>
@@ -51,6 +52,7 @@ void TSNE::run(float* X, int N, int D, float* Y,
                int random_state, bool init_from_Y, int verbose,
                float early_exaggeration, float learning_rate,
                float *final_error) {
+    assert(!init_from_Y);
 
     if (N - 1 < 3 * perplexity) {
         perplexity = (N - 1) / 3;
@@ -141,19 +143,15 @@ void TSNE::run(float* X, int N, int D, float* Y,
         val_P[i] *= early_exaggeration;
     }
 
-    // Initialize solution (randomly), unless Y is already initialized
-    if (init_from_Y) {
-        stop_lying_iter = 0;  // Immediately stop lying. Passed Y is close to the true solution.
-    }
-    else {
-        if (random_state != -1) {
-            srand(random_state);
-        }
-        for (int i = 0; i < N * no_dims; i++) {
-            Y[i] = randn();
-        }
+    // Initialize solution (randomly)
+    for (int i = 0; i < N * no_dims; i++) {
+        Y[i] = randn();
     }
 
+
+    int res_dims = no_dims;
+    GradientDescender *gder = new GradientDescender(Y, N, res_dims);
+    
     // Perform main training loop
     compute_time = 0.;
     compute_start = Clock::now();
@@ -162,7 +160,7 @@ void TSNE::run(float* X, int N, int D, float* Y,
         bool need_eval_error = (verbose && ((iter > 0 && iter % eval_interval == 0) || (iter == max_iter - 1)));
 
         // Compute approximate gradient
-        float error = computeGradient(row_P, col_P, val_P, Y, N, no_dims, dY, theta, need_eval_error);
+        float error = computeGradient(row_P, col_P, val_P, Y, N, no_dims, dY, theta, need_eval_error, gder);
 
         for (int i = 0; i < N * no_dims; i++) {
             // Update gains
@@ -218,11 +216,8 @@ void TSNE::run(float* X, int N, int D, float* Y,
 }
 
 // Compute gradient of the t-SNE cost function (using Barnes-Hut algorithm)
-float TSNE::computeGradient(int* inp_row_P, int* inp_col_P, float* inp_val_P, float* Y, int N, int no_dims, float* dC, float theta, bool eval_error)
+float TSNE::computeGradient(int* inp_row_P, int* inp_col_P, float* inp_val_P, float* Y, int N, int no_dims, float* dC, float theta, bool eval_error, GradientDescender *gder)
 {
-    // Construct quadtree on current map
-    SplitTree* tree = new SplitTree(Y, N, no_dims);
-
     // Compute all terms required for t-SNE gradient
     float* Q = new float[N];
     float* pos_f = new float[N * no_dims]();
@@ -263,13 +258,22 @@ float TSNE::computeGradient(int* inp_row_P, int* inp_col_P, float* inp_val_P, fl
                 pos_f[ind1 + d] += D * (Y[ind1 + d] - Y[ind2 + d]);
             }
         }
-
-        // NoneEdge forces
-        float this_Q = .0;
-
-        tree->computeNonEdgeForces(n, theta, neg_f + n * no_dims, &this_Q);
-        Q[n] = this_Q;
     }
+
+    // CPU 
+    // Construct quadtree on current map
+    SplitTree* tree = new SplitTree(Y, N, no_dims);
+    
+    // NoneEdge forces
+    for (int n = 0; n < N; n++) {
+        float q = .0;
+        tree->computeNonEdgeForces(n, theta, neg_f + n * no_dims, &q);
+
+        Q[n] = q;
+    }
+
+    // TODO: GPU
+    gder->compute_nonedge_forces(theta);
 
     float sum_Q = 0.;
     for (int i = 0; i < N; i++) {
