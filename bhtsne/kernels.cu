@@ -65,7 +65,7 @@ Author: Martin Burtscher
 // childd is aliased with velxd, velyd, velzd, accxd, accyd, acczd, and sortd but they never use the same memory locations
 __constant__ int nnodesd, nbodiesd;
 __constant__ float dtimed, dthfd, epssqd, itolsqd;
-__constant__ volatile float *massd, *posxd, *posyd, *poszd, *velxd, *velyd, *velzd, *accxd, *accyd, *acczd;
+__constant__ volatile float *massd, *posxd, *posyd, *poszd, *accxd, *accyd, *acczd;
 __constant__ volatile float *maxxd, *maxyd, *maxzd, *minxd, *minyd, *minzd;
 __constant__ volatile int *errd, *sortd, *childd, *countd, *startd;
 
@@ -535,13 +535,6 @@ void ForceCalculationKernel()
         depth--;  // done with this level
       }
 
-      if (stepd > 0) {
-        // update velocity
-        velxd[i] += (ax - accxd[i]) * dthfd;
-        velyd[i] += (ay - accyd[i]) * dthfd;
-        velzd[i] += (az - acczd[i]) * dthfd;
-      }
-
       // save computed acceleration
       accxd[i] = ax;
       accyd[i] = ay;
@@ -550,40 +543,6 @@ void ForceCalculationKernel()
   }
 }
 
-
-/******************************************************************************/
-/*** advance bodies ***********************************************************/
-/******************************************************************************/
-
-__global__
-// __launch_bounds__(THREADS6, FACTOR6)
-void IntegrationKernel()
-{
-  register int i, inc;
-  register float dvelx, dvely, dvelz;
-  register float velhx, velhy, velhz;
-
-  // iterate over all bodies assigned to thread
-  inc = blockDim.x * gridDim.x;
-  for (i = threadIdx.x + blockIdx.x * blockDim.x; i < nbodiesd; i += inc) {
-    // integrate
-    dvelx = accxd[i] * dthfd;
-    dvely = accyd[i] * dthfd;
-    dvelz = acczd[i] * dthfd;
-
-    velhx = velxd[i] + dvelx;
-    velhy = velyd[i] + dvely;
-    velhz = velzd[i] + dvelz;
-
-    posxd[i] += velhx * dtimed;
-    posyd[i] += velhy * dtimed;
-    poszd[i] += velhz * dtimed;
-
-    velxd[i] = velhx + dvelx;
-    velyd[i] = velhy + dvely;
-    velzd[i] = velhz + dvelz;
-  }
-}
 
 
 /******************************************************************************/
@@ -646,12 +605,11 @@ int init()
   float time, timing[7];
   clock_t starttime, endtime;
   cudaEvent_t start, stop;
-  float *mass, *posx, *posy, *posz, *velx, *vely, *velz;
+  float *mass, *posx, *posy, *posz;
 
   int *errl, *sortl, *childl, *countl, *startl;
   float *massl;
   float *posxl, *posyl, *poszl;
-  float *velxl, *velyl, *velzl;
   float *accxl, *accyl, *acczl;
   float *maxxl, *maxyl, *maxzl;
   float *minxl, *minyl, *minzl;
@@ -742,13 +700,7 @@ int init()
   if (posy == NULL) {fprintf(stderr, "cannot allocate posy\n");  exit(-1);}
   posz = (float *)malloc(sizeof(float) * nbodies);
   if (posz == NULL) {fprintf(stderr, "cannot allocate posz\n");  exit(-1);}
-  velx = (float *)malloc(sizeof(float) * nbodies);
-  if (velx == NULL) {fprintf(stderr, "cannot allocate velx\n");  exit(-1);}
-  vely = (float *)malloc(sizeof(float) * nbodies);
-  if (vely == NULL) {fprintf(stderr, "cannot allocate vely\n");  exit(-1);}
-  velz = (float *)malloc(sizeof(float) * nbodies);
-  if (velz == NULL) {fprintf(stderr, "cannot allocate velz\n");  exit(-1);}
-
+ 
   // generate input
   {
     drndset(7);
@@ -780,9 +732,6 @@ int init()
         sq = x*x + y*y + z*z;
       } while (sq > 1.0);
       scale = vsc * v / sqrt(sq);
-      velx[i] = x * scale;
-      vely[i] = y * scale;
-      velz[i] = z * scale;
     }
   }
 
@@ -799,9 +748,6 @@ int init()
   // int inc = (nbodies + WARPSIZE - 1) & (-WARPSIZE);
   int inc = (nbodies + WARPSIZE - 1) / WARPSIZE * WARPSIZE;
 
-  velxl = (float *)&childl[0*inc];
-  velyl = (float *)&childl[1*inc];
-  velzl = (float *)&childl[2*inc];
   accxl = (float *)&childl[3*inc];
   accyl = (float *)&childl[4*inc];
   acczl = (float *)&childl[5*inc];
@@ -830,9 +776,6 @@ int init()
   if (cudaSuccess != cudaMemcpyToSymbol(posxd, &posxl, sizeof(void*))) fprintf(stderr, "copying of posxl to device failed\n");  CudaTest("posxl copy to device failed");
   if (cudaSuccess != cudaMemcpyToSymbol(posyd, &posyl, sizeof(void*))) fprintf(stderr, "copying of posyl to device failed\n");  CudaTest("posyl copy to device failed");
   if (cudaSuccess != cudaMemcpyToSymbol(poszd, &poszl, sizeof(void*))) fprintf(stderr, "copying of poszl to device failed\n");  CudaTest("poszl copy to device failed");
-  if (cudaSuccess != cudaMemcpyToSymbol(velxd, &velxl, sizeof(void*))) fprintf(stderr, "copying of velxl to device failed\n");  CudaTest("velxl copy to device failed");
-  if (cudaSuccess != cudaMemcpyToSymbol(velyd, &velyl, sizeof(void*))) fprintf(stderr, "copying of velyl to device failed\n");  CudaTest("velyl copy to device failed");
-  if (cudaSuccess != cudaMemcpyToSymbol(velzd, &velzl, sizeof(void*))) fprintf(stderr, "copying of velzl to device failed\n");  CudaTest("velzl copy to device failed");
   if (cudaSuccess != cudaMemcpyToSymbol(accxd, &accxl, sizeof(void*))) fprintf(stderr, "copying of accxl to device failed\n");  CudaTest("accxl copy to device failed");
   if (cudaSuccess != cudaMemcpyToSymbol(accyd, &accyl, sizeof(void*))) fprintf(stderr, "copying of accyl to device failed\n");  CudaTest("accyl copy to device failed");
   if (cudaSuccess != cudaMemcpyToSymbol(acczd, &acczl, sizeof(void*))) fprintf(stderr, "copying of acczl to device failed\n");  CudaTest("acczl copy to device failed");
@@ -848,9 +791,6 @@ int init()
   if (cudaSuccess != cudaMemcpy(posxl, posx, sizeof(float) * nbodies, cudaMemcpyHostToDevice)) fprintf(stderr, "copying of posx to device failed\n");  CudaTest("posx copy to device failed");
   if (cudaSuccess != cudaMemcpy(posyl, posy, sizeof(float) * nbodies, cudaMemcpyHostToDevice)) fprintf(stderr, "copying of posy to device failed\n");  CudaTest("posy copy to device failed");
   if (cudaSuccess != cudaMemcpy(poszl, posz, sizeof(float) * nbodies, cudaMemcpyHostToDevice)) fprintf(stderr, "copying of posz to device failed\n");  CudaTest("posz copy to device failed");
-  if (cudaSuccess != cudaMemcpy(velxl, velx, sizeof(float) * nbodies, cudaMemcpyHostToDevice)) fprintf(stderr, "copying of velx to device failed\n");  CudaTest("velx copy to device failed");
-  if (cudaSuccess != cudaMemcpy(velyl, vely, sizeof(float) * nbodies, cudaMemcpyHostToDevice)) fprintf(stderr, "copying of vely to device failed\n");  CudaTest("vely copy to device failed");
-  if (cudaSuccess != cudaMemcpy(velzl, velz, sizeof(float) * nbodies, cudaMemcpyHostToDevice)) fprintf(stderr, "copying of velz to device failed\n");  CudaTest("velz copy to device failed");
 
   // run timesteps (launch GPU kernels)
   cudaEventCreate(&start);  cudaEventCreate(&stop);  
@@ -891,12 +831,6 @@ int init()
     cudaEventRecord(stop, 0);  cudaEventSynchronize(stop);  cudaEventElapsedTime(&time, start, stop);
     timing[5] += time;
     CudaTest("kernel 5 launch failed");
-
-    cudaEventRecord(start, 0);
-    IntegrationKernel<<<blocks * FACTOR6, THREADS6>>>();
-    cudaEventRecord(stop, 0);  cudaEventSynchronize(stop);  cudaEventElapsedTime(&time, start, stop);
-    timing[6] += time;
-    CudaTest("kernel 6 launch failed");
   }
   endtime = clock();
   CudaTest("kernel launch failed");
@@ -907,9 +841,6 @@ int init()
   if (cudaSuccess != cudaMemcpy(posx, posxl, sizeof(float) * nbodies, cudaMemcpyDeviceToHost)) fprintf(stderr, "copying of posx from device failed\n");  CudaTest("posx copy from device failed");
   if (cudaSuccess != cudaMemcpy(posy, posyl, sizeof(float) * nbodies, cudaMemcpyDeviceToHost)) fprintf(stderr, "copying of posy from device failed\n");  CudaTest("posy copy from device failed");
   if (cudaSuccess != cudaMemcpy(posz, poszl, sizeof(float) * nbodies, cudaMemcpyDeviceToHost)) fprintf(stderr, "copying of posz from device failed\n");  CudaTest("posz copy from device failed");
-  if (cudaSuccess != cudaMemcpy(velx, velxl, sizeof(float) * nbodies, cudaMemcpyDeviceToHost)) fprintf(stderr, "copying of velx from device failed\n");  CudaTest("velx copy from device failed");
-  if (cudaSuccess != cudaMemcpy(vely, velyl, sizeof(float) * nbodies, cudaMemcpyDeviceToHost)) fprintf(stderr, "copying of vely from device failed\n");  CudaTest("vely copy from device failed");
-  if (cudaSuccess != cudaMemcpy(velz, velzl, sizeof(float) * nbodies, cudaMemcpyDeviceToHost)) fprintf(stderr, "copying of velz from device failed\n");  CudaTest("velz copy from device failed");
 
   // runtime = (int) (1000.0f * (endtime - starttime) / CLOCKS_PER_SEC);
   // fprintf(stderr, "runtime: %d ms  (", runtime);
@@ -934,9 +865,6 @@ int init()
   free(posx);
   free(posy);
   free(posz);
-  free(velx);
-  free(vely);
-  free(velz);
 
   cudaFree(errl);
   cudaFree(childl);
