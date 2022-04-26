@@ -1,5 +1,3 @@
-// nvcc -std=c++11 BurtscherGCG.2.2.cu -O3 -m64 --gpu-architecture compute_61 -ccbin /usr/bin/gcc -o test
-
 /*
 CUDA BarnesHut v2.2: Simulation of the gravitational forces
 in a galactic cluster using the Barnes-Hut n-body algorithm
@@ -58,6 +56,14 @@ Author: Martin Burtscher
 
 #define WARPSIZE 32
 #define MAXDEPTH 32
+
+
+// TODO:
+// 1. Octree -> Quadtree
+// 2. sumQ
+// 3. CPU (+) + GPU (-) integration 
+// 4. ISPC & OpenMP + CUDA
+// 5. Perf analysis (after 30th)
 
 
 /******************************************************************************/
