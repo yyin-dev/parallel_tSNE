@@ -16,14 +16,14 @@ inline void gpu_assert(cudaError_t code, const char *file, int line, bool abort 
     }
 }
 
-void init();
+void init(float* points, int num_points);
 
 // Constructor
 // Allocate memory on host and device.
-BHTree::BHTree(float *Ys, int N, int output_dims) {}
+BHTree::BHTree() {}
 
 BHTree::~BHTree() { cudaDeviceSynchronize(); }
 
-void BHTree::compute_nonedge_forces(float theta) {
-    init(); 
+void BHTree::compute_nonedge_forces(float* points, int num_points) {
+    init(points, num_points); 
 }

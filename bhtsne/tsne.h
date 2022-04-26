@@ -11,7 +11,6 @@
 #ifndef TSNE_H
 #define TSNE_H
 
-#include "bhtree.h"
 
 static inline float sign(float x) { return (x == .0 ? .0 : (x < .0 ? -1.0 : 1.0)); }
 
@@ -26,7 +25,7 @@ public:
                float *final_error = NULL);
     void symmetrizeMatrix(int** row_P, int** col_P, float** val_P, int N);
 private:
-    float computeGradient(int* inp_row_P, int* inp_col_P, float* inp_val_P, float* Y, int N, int D, float* dC, float theta, bool eval_error, BHTree *bhtree=nullptr);
+    float computeGradient(int* inp_row_P, int* inp_col_P, float* inp_val_P, float* Y, int N, int D, float* dC, float theta, bool eval_error);
     float evaluateError(int* row_P, int* col_P, float* val_P, float* Y, int N, int no_dims, float theta);
     void zeroMean(float* X, int N, int D);
     void computeGaussianPerplexity(float* X, int N, int D, int** _row_P, int** _col_P, float** _val_P, float perplexity, int K, int verbose);

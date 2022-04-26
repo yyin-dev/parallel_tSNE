@@ -565,7 +565,7 @@ static double drnd()
 
 /******************************************************************************/
 
-int init()
+int init(float* points, int num_points)
 {
    int i, blocks;
    int nnodes, nbodies, step, timesteps;
@@ -583,11 +583,10 @@ int init()
   float *accxl, *accyl;
   float *maxxl, *maxyl;
   float *minxl, *minyl;
-   double rsc, vsc, r, v, x, y, sq, scale;
 
   // perform some checks
 
-  fprintf(stderr, "CUDA BarnesHut v2.2\n");
+  // fprintf(stderr, "CUDA BarnesHut v2.2\n");
 //   if (argc != 3) {
 //     fprintf(stderr, "\n");
 //     fprintf(stderr, "arguments: number_of_bodies number_of_timesteps\n");
@@ -643,9 +642,9 @@ int init()
   cudaGetLastError();  // reset error value
   for (i = 0; i < 7; i++) timing[i] = 0.0f;
 
-  nbodies = 1795;
-
+  nbodies = num_points;
   printf("nbodies: %d\n", nbodies);
+
   nnodes = nbodies * 2;
   if (nnodes < 1024*blocks) nnodes = 1024*blocks;
   while ((nnodes & (WARPSIZE-1)) != 0) nnodes++; // nnodes & WARPSIZE-1 == 0
@@ -671,32 +670,39 @@ int init()
  
   // generate input
   {
-    drndset(7);
-    rsc = (3 * 3.1415926535897932384626433832795) / 16;
-    vsc = sqrt(1.0 / rsc);
-    for (i = 0; i < nbodies; i++) {
-      mass[i] = 1.0 / nbodies;
-      r = 1.0 / sqrt(pow(drnd()*0.999, -2.0/3.0) - 1);
-      do {
-        x = drnd()*2.0 - 1.0;
-        y = drnd()*2.0 - 1.0;
-        sq = x*x + y*y;
-      } while (sq > 1.0);
-      scale = rsc * r / sqrt(sq);
-      posx[i] = x * scale;
-      posy[i] = y * scale;
+    // double rsc, vsc, r, v, x, y, sq, scale;
+    // drndset(7);
+    // rsc = (3 * 3.1415926535897932384626433832795) / 16;
+    // vsc = sqrt(1.0 / rsc);
+    // for (i = 0; i < nbodies; i++) {
+    //   mass[i] = 1.0 / nbodies;
+    //   r = 1.0 / sqrt(pow(drnd()*0.999, -2.0/3.0) - 1);
+    //   do {
+    //     x = drnd()*2.0 - 1.0;
+    //     y = drnd()*2.0 - 1.0;
+    //     sq = x*x + y*y;
+    //   } while (sq > 1.0);
+    //   scale = rsc * r / sqrt(sq);
+    //   posx[i] = x * scale;
+    //   posy[i] = y * scale;
 
-      do {
-        x = drnd();
-        y = drnd() * 0.1;
-      } while (y > x*x * pow(1 - x*x, 3.5));
-      v = x * sqrt(2.0 / sqrt(1 + r*r));
-      do {
-        x = drnd()*2.0 - 1.0;
-        y = drnd()*2.0 - 1.0;
-        sq = x*x + y*y;
-      } while (sq > 1.0);
-      scale = vsc * v / sqrt(sq);
+    //   do {
+    //     x = drnd();
+    //     y = drnd() * 0.1;
+    //   } while (y > x*x * pow(1 - x*x, 3.5));
+    //   v = x * sqrt(2.0 / sqrt(1 + r*r));
+    //   do {
+    //     x = drnd()*2.0 - 1.0;
+    //     y = drnd()*2.0 - 1.0;
+    //     sq = x*x + y*y;
+    //   } while (sq > 1.0);
+    //   scale = vsc * v / sqrt(sq);
+    // }
+
+    for (int i = 0; i < nbodies; i++) {
+        mass[i] = 1.0;
+        posx[i] = points[2 * i];
+        posy[i] = points[2 * i + 1];
     }
   }
 

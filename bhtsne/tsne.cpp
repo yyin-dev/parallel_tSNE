@@ -22,7 +22,7 @@
 #include <omp.h>
 #endif
 
-
+#include "bhtree.h"
 #include "tsne.h"
 #include "vptree.h"
 #include "splittree.h"
@@ -148,8 +148,6 @@ void TSNE::run(float* X, int N, int D, float* Y,
         Y[i] = randn();
     }
 
-    BHTree *bhtree = new BHTree(Y, N, no_dims);
-
     // Perform main training loop
     compute_time = 0.;
     compute_start = Clock::now();
@@ -160,7 +158,7 @@ void TSNE::run(float* X, int N, int D, float* Y,
         bool need_eval_error = (verbose && ((iter > 0 && iter % eval_interval == 0) || (iter == max_iter - 1)));
 
         // Compute approximate gradient
-        float error = computeGradient(row_P, col_P, val_P, Y, N, no_dims, dY, theta, need_eval_error, bhtree);
+        float error = computeGradient(row_P, col_P, val_P, Y, N, no_dims, dY, theta, need_eval_error);
 
         for (int i = 0; i < N * no_dims; i++) {
             // Update gains
@@ -216,7 +214,7 @@ void TSNE::run(float* X, int N, int D, float* Y,
 }
 
 // Compute gradient of the t-SNE cost function (using Barnes-Hut algorithm)
-float TSNE::computeGradient(int* inp_row_P, int* inp_col_P, float* inp_val_P, float* Y, int N, int no_dims, float* dC, float theta, bool eval_error, BHTree* bhtree)
+float TSNE::computeGradient(int* inp_row_P, int* inp_col_P, float* inp_val_P, float* Y, int N, int no_dims, float* dC, float theta, bool eval_error)
 {
     // Compute all terms required for t-SNE gradient
     float* Q = new float[N];
@@ -273,7 +271,8 @@ float TSNE::computeGradient(int* inp_row_P, int* inp_col_P, float* inp_val_P, fl
     }
 
     // TODO: GPU
-    bhtree->compute_nonedge_forces(theta);
+    BHTree *bhtree = new BHTree();
+    bhtree->compute_nonedge_forces(Y, N);
 
     float sum_Q = 0.;
     for (int i = 0; i < N; i++) {

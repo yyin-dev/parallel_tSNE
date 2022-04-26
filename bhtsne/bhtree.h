@@ -2,8 +2,8 @@ class BHTree {
    private:
 
    public:
-    BHTree(float *Ys, int num_points, int num_dims);
+    BHTree();
     ~BHTree();
 
-    void compute_nonedge_forces(float theta);
+    void compute_nonedge_forces(float* points, int num_points);
 };
