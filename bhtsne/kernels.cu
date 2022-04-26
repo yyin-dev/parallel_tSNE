@@ -64,7 +64,7 @@ Author: Martin Burtscher
 
 // childd is aliased with velxd, velyd, velzd, accxd, accyd, acczd, and sortd but they never use the same memory locations
 __constant__ int nnodesd, nbodiesd;
-__constant__ float dtimed, dthfd, epssqd, itolsqd;
+__constant__ float dtimed, dthfd, itolsqd;
 __constant__ volatile float *massd, *posxd, *posyd, *accxd, *accyd;
 __constant__ volatile float *maxxd, *maxyd, *minxd, *minyd;
 __constant__ volatile int *errd, *sortd, *childd, *countd, *startd;
@@ -168,7 +168,6 @@ void BoundingBoxKernel()
     }
   }
 }
-
 
 /******************************************************************************/
 /*** build tree ***************************************************************/
@@ -433,9 +432,7 @@ void ForceCalculationKernel()
     dq[0] = tmp * tmp * itolsqd;
     for (i = 1; i < maxdepthd; i++) {
       dq[i] = dq[i - 1] * 0.25f;
-      dq[i - 1] += epssqd;
     }
-    dq[i - 1] += epssqd;
 
     if (maxdepthd > MAXDEPTH) {
       *errd = maxdepthd;
@@ -483,12 +480,12 @@ void ForceCalculationKernel()
             pos[depth] = t + 1;
           }
           if (n >= 0) {
-            dx = posxd[n] - px;
-            dy = posyd[n] - py;
-            tmp = dx*dx + (dy*dy + (epssqd));  // compute distance squared (plus softening)
+            dx = px - posxd[n];
+            dy = py - posyd[n] ;
+            tmp = dx*dx + dy*dy;  // compute distance squared (plus softening)
             if ((n < nbodiesd) || __all(tmp >= dq[depth])) {  // check if all threads agree that cell is far enough away (or is a body)
-              tmp = rsqrtf(tmp);  // compute distance
-              tmp = massd[n] * tmp * tmp * tmp;
+              tmp = 1 / (1 + tmp);
+              tmp = massd[n] * tmp * tmp;
               ax += dx * tmp;
               ay += dy * tmp;
             } else {
@@ -571,7 +568,7 @@ int init(float* points, int num_points)
    int nnodes, nbodies, step, timesteps;
     int runtime;
   int error;
-   float dtime, dthf, epssq, itolsq;
+   float dtime, dthf, itolsq;
   float time, timing[7];
   clock_t starttime, endtime;
   cudaEvent_t start, stop;
@@ -652,9 +649,7 @@ int init(float* points, int num_points)
   printf("nnodes: %d\n", nnodes);
 
 //   timesteps = atoi(argv[2]);
-  timesteps = 10;
   dtime = 0.025;  dthf = dtime * 0.5f;
-  epssq = 0.05 * 0.05;
   itolsq = 1.0f / (0.5 * 0.5);
 
   // allocate memory
@@ -733,7 +728,6 @@ int init(float* points, int num_points)
   if (cudaSuccess != cudaMemcpyToSymbol(errd, &errl, sizeof(void*))) fprintf(stderr, "copying of err to device failed\n");  CudaTest("err copy to device failed");
   if (cudaSuccess != cudaMemcpyToSymbol(dtimed, &dtime, sizeof(float))) fprintf(stderr, "copying of dtime to device failed\n");  CudaTest("dtime copy to device failed");
   if (cudaSuccess != cudaMemcpyToSymbol(dthfd, &dthf, sizeof(float))) fprintf(stderr, "copying of dthf to device failed\n");  CudaTest("dthf copy to device failed");
-  if (cudaSuccess != cudaMemcpyToSymbol(epssqd, &epssq, sizeof(float))) fprintf(stderr, "copying of epssq to device failed\n");  CudaTest("epssq copy to device failed");
   if (cudaSuccess != cudaMemcpyToSymbol(itolsqd, &itolsq, sizeof(float))) fprintf(stderr, "copying of itolsq to device failed\n");  CudaTest("itolsq copy to device failed");
   if (cudaSuccess != cudaMemcpyToSymbol(sortd, &sortl, sizeof(void*))) fprintf(stderr, "copying of sortl to device failed\n");  CudaTest("sortl copy to device failed");
   if (cudaSuccess != cudaMemcpyToSymbol(countd, &countl, sizeof(void*))) fprintf(stderr, "copying of countl to device failed\n");  CudaTest("countl copy to device failed");
@@ -763,37 +757,38 @@ int init(float* points, int num_points)
   timing[0] += time;
   CudaTest("kernel 0 launch failed");
 
-  for (step = 0; step < timesteps; step++) {
-    cudaEventRecord(start, 0);
-    BoundingBoxKernel<<<blocks * FACTOR1, THREADS1>>>();
-    cudaEventRecord(stop, 0);  cudaEventSynchronize(stop);  cudaEventElapsedTime(&time, start, stop);
-    timing[1] += time;
-    CudaTest("kernel 1 launch failed");
+  //////
+  cudaEventRecord(start, 0);
+  BoundingBoxKernel<<<blocks * FACTOR1, THREADS1>>>();
+  cudaEventRecord(stop, 0);  cudaEventSynchronize(stop);  cudaEventElapsedTime(&time, start, stop);
+  timing[1] += time;
+  CudaTest("kernel 1 launch failed");
 
-    cudaEventRecord(start, 0);
-    TreeBuildingKernel<<<blocks * FACTOR2, THREADS2>>>();
-    cudaEventRecord(stop, 0);  cudaEventSynchronize(stop);  cudaEventElapsedTime(&time, start, stop);
-    timing[2] += time;
-    CudaTest("kernel 2 launch failed");
+  cudaEventRecord(start, 0);
+  TreeBuildingKernel<<<blocks * FACTOR2, THREADS2>>>();
+  cudaEventRecord(stop, 0);  cudaEventSynchronize(stop);  cudaEventElapsedTime(&time, start, stop);
+  timing[2] += time;
+  CudaTest("kernel 2 launch failed");
 
-    cudaEventRecord(start, 0);
-    SummarizationKernel<<<blocks * FACTOR3, THREADS3>>>();
-    cudaEventRecord(stop, 0);  cudaEventSynchronize(stop);  cudaEventElapsedTime(&time, start, stop);
-    timing[3] += time;
-    CudaTest("kernel 3 launch failed");
+  cudaEventRecord(start, 0);
+  SummarizationKernel<<<blocks * FACTOR3, THREADS3>>>();
+  cudaEventRecord(stop, 0);  cudaEventSynchronize(stop);  cudaEventElapsedTime(&time, start, stop);
+  timing[3] += time;
+  CudaTest("kernel 3 launch failed");
 
-    cudaEventRecord(start, 0);
-    SortKernel<<<blocks * FACTOR4, THREADS4>>>();
-    cudaEventRecord(stop, 0);  cudaEventSynchronize(stop);  cudaEventElapsedTime(&time, start, stop);
-    timing[4] += time;
-    CudaTest("kernel 4 launch failed");
+  cudaEventRecord(start, 0);
+  SortKernel<<<blocks * FACTOR4, THREADS4>>>();
+  cudaEventRecord(stop, 0);  cudaEventSynchronize(stop);  cudaEventElapsedTime(&time, start, stop);
+  timing[4] += time;
+  CudaTest("kernel 4 launch failed");
 
-    cudaEventRecord(start, 0);
-    ForceCalculationKernel<<<blocks * FACTOR5, THREADS5>>>();
-    cudaEventRecord(stop, 0);  cudaEventSynchronize(stop);  cudaEventElapsedTime(&time, start, stop);
-    timing[5] += time;
-    CudaTest("kernel 5 launch failed");
-  }
+  cudaEventRecord(start, 0);
+  ForceCalculationKernel<<<blocks * FACTOR5, THREADS5>>>();
+  cudaEventRecord(stop, 0);  cudaEventSynchronize(stop);  cudaEventElapsedTime(&time, start, stop);
+  timing[5] += time;
+  CudaTest("kernel 5 launch failed");
+  ///////
+
   endtime = clock();
   CudaTest("kernel launch failed");
   cudaEventDestroy(start);  cudaEventDestroy(stop);
@@ -802,6 +797,12 @@ int init(float* points, int num_points)
   if (cudaSuccess != cudaMemcpy(&error, errl, sizeof(int), cudaMemcpyDeviceToHost)) fprintf(stderr, "copying of err from device failed\n");  CudaTest("err copy from device failed");
   if (cudaSuccess != cudaMemcpy(posx, posxl, sizeof(float) * nbodies, cudaMemcpyDeviceToHost)) fprintf(stderr, "copying of posx from device failed\n");  CudaTest("posx copy from device failed");
   if (cudaSuccess != cudaMemcpy(posy, posyl, sizeof(float) * nbodies, cudaMemcpyDeviceToHost)) fprintf(stderr, "copying of posy from device failed\n");  CudaTest("posy copy from device failed");
+
+  float *accx, *accy;
+  accx = (float *)malloc(sizeof(float) * nbodies);
+  accy = (float *)malloc(sizeof(float) * nbodies);
+  if (cudaSuccess != cudaMemcpy(accx, accxl, sizeof(float) * nbodies, cudaMemcpyDeviceToHost)) fprintf(stderr, "copying of accx from device failed\n");  CudaTest("accx copy from device failed");
+  if (cudaSuccess != cudaMemcpy(accy, accyl, sizeof(float) * nbodies, cudaMemcpyDeviceToHost)) fprintf(stderr, "copying of accy from device failed\n");  CudaTest("accy copy from device failed");
 
   // runtime = (int) (1000.0f * (endtime - starttime) / CLOCKS_PER_SEC);
   // fprintf(stderr, "runtime: %d ms  (", runtime);
@@ -816,10 +817,12 @@ int init(float* points, int num_points)
   //   fprintf(stderr, ") = %.1f FAILED %d\n", time, error);
   // }
 
-
   // print output
   // for (i = 0; i < nbodies; i++) {
-    // printf("%.2e %.2e %.2e\n", posx[0], posy[0], posz[0]);
+  printf("GPU: \n");
+  for (int j = 0; j < 10; j++) {
+    printf("%.2e %.2e\n", accx[j], accy[j]);
+  }
   // }
 
   free(mass);

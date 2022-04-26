@@ -270,6 +270,11 @@ float TSNE::computeGradient(int* inp_row_P, int* inp_col_P, float* inp_val_P, fl
         Q[n] = q;
     }
 
+    printf("CPU:\n");
+    for (int i = 0; i < 10; i++) {
+        printf("%.2e %.2e\n", (neg_f + i * no_dims)[0], (neg_f + i * no_dims)[1]);
+    }
+
     // TODO: GPU
     BHTree *bhtree = new BHTree();
     bhtree->compute_nonedge_forces(Y, N);

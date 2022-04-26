@@ -41,5 +41,5 @@ clean:
 easy:
 	make clean && make && ./bhtsne -f ../../inputs/easy_1797x64.bin
 
-easy:
+medium:
 	make clean && make && ./bhtsne -f ../../inputs/medium_10000x784.bin -n 8
