@@ -65,8 +65,8 @@ Author: Martin Burtscher
 // childd is aliased with velxd, velyd, velzd, accxd, accyd, acczd, and sortd but they never use the same memory locations
 __constant__ int nnodesd, nbodiesd;
 __constant__ float dtimed, dthfd, epssqd, itolsqd;
-__constant__ volatile float *massd, *posxd, *posyd, *poszd, *accxd, *accyd, *acczd;
-__constant__ volatile float *maxxd, *maxyd, *maxzd, *minxd, *minyd, *minzd;
+__constant__ volatile float *massd, *posxd, *posyd, *accxd, *accyd;
+__constant__ volatile float *maxxd, *maxyd, *minxd, *minyd;
 __constant__ volatile int *errd, *sortd, *childd, *countd, *startd;
 
 __device__ volatile int stepd, bottomd, maxdepthd, blkcntd;
@@ -95,13 +95,12 @@ __global__
 void BoundingBoxKernel()
 {
   register int i, j, k, inc;
-  register float val, minx, maxx, miny, maxy, minz, maxz;
-  __shared__ volatile float sminx[THREADS1], smaxx[THREADS1], sminy[THREADS1], smaxy[THREADS1], sminz[THREADS1], smaxz[THREADS1];
+  register float val, minx, maxx, miny, maxy;
+  __shared__ volatile float sminx[THREADS1], smaxx[THREADS1], sminy[THREADS1], smaxy[THREADS1];
 
   // initialize with valid data (in case #bodies < #threads)
   minx = maxx = posxd[0];
   miny = maxy = posyd[0];
-  minz = maxz = poszd[0];
 
   // scan all bodies
   i = threadIdx.x;
@@ -113,9 +112,6 @@ void BoundingBoxKernel()
     val = posyd[j];
     miny = min(miny, val);
     maxy = max(maxy, val);
-    val = poszd[j];
-    minz = min(minz, val);
-    maxz = max(maxz, val);
   }
 
   // reduction in shared memory
@@ -123,8 +119,6 @@ void BoundingBoxKernel()
   smaxx[i] = maxx;
   sminy[i] = miny;
   smaxy[i] = maxy;
-  sminz[i] = minz;
-  smaxz[i] = maxz;
 
   for (j = THREADS1 / 2; j > 0; j /= 2) {
     __syncthreads();
@@ -134,8 +128,6 @@ void BoundingBoxKernel()
       smaxx[i] = maxx = max(maxx, smaxx[k]);
       sminy[i] = miny = min(miny, sminy[k]);
       smaxy[i] = maxy = max(maxy, smaxy[k]);
-      sminz[i] = minz = min(minz, sminz[k]);
-      smaxz[i] = maxz = max(maxz, smaxz[k]);
     }
   }
 
@@ -146,8 +138,6 @@ void BoundingBoxKernel()
     maxxd[k] = maxx;
     minyd[k] = miny;
     maxyd[k] = maxy;
-    minzd[k] = minz;
-    maxzd[k] = maxz;
 
     inc = gridDim.x - 1;
     if (inc == atomicInc((unsigned int *)&blkcntd, inc)) {
@@ -157,13 +147,11 @@ void BoundingBoxKernel()
         maxx = max(maxx, maxxd[j]);
         miny = min(miny, minyd[j]);
         maxy = max(maxy, maxyd[j]);
-        minz = min(minz, minzd[j]);
-        maxz = max(maxz, maxzd[j]);
       }
 
       // compute 'radius'
       val = max(maxx - minx, maxy - miny);
-      radiusd = max(val, maxz - minz) * 0.5f;
+      radiusd = val * 0.5f;
 
       // create root node
       k = nnodesd;
@@ -173,7 +161,6 @@ void BoundingBoxKernel()
       startd[k] = 0;
       posxd[k] = (minx + maxx) * 0.5f;
       posyd[k] = (miny + maxy) * 0.5f;
-      poszd[k] = (minz + maxz) * 0.5f;
       k *= 8;
       for (i = 0; i < 8; i++) childd[k + i] = -1;
 
@@ -192,16 +179,15 @@ __global__
 void TreeBuildingKernel()
 {
   register int i, j, k, depth, localmaxdepth, skip, inc;
-  register float x, y, z, r;
-  register float px, py, pz;
+  register float x, y, r;
+  register float px, py;
   register int ch, n, cell, locked, patch;
-  register float radius, rootx, rooty, rootz;
+  register float radius, rootx, rooty;
 
   // cache root data
   radius = radiusd;
   rootx = posxd[nnodesd];
   rooty = posyd[nnodesd];
-  rootz = poszd[nnodesd];
 
   localmaxdepth = 1;
   skip = 1;
@@ -215,7 +201,6 @@ void TreeBuildingKernel()
       skip = 0;
       px = posxd[i];
       py = posyd[i];
-      pz = poszd[i];
       n = nnodesd;
       depth = 1;
       r = radius;
@@ -223,7 +208,6 @@ void TreeBuildingKernel()
       // determine which child to follow
       if (rootx < px) j = 1;
       if (rooty < py) j += 2;
-      if (rootz < pz) j += 4;
     }
 
     // follow path to leaf cell
@@ -236,7 +220,6 @@ void TreeBuildingKernel()
       // determine which child to follow
       if (posxd[n] < px) j = 1;
       if (posyd[n] < py) j += 2;
-      if (poszd[n] < pz) j += 4;
       ch = childd[n*8+j];
     }
 
@@ -261,14 +244,12 @@ void TreeBuildingKernel()
 
             x = (j & 1) * r;
             y = ((j >> 1) & 1) * r;
-            z = ((j >> 2) & 1) * r;
             r *= 0.5f;
 
             massd[cell] = -1.0f;
             startd[cell] = -1;
             x = posxd[cell] = posxd[n] - r + x;
             y = posyd[cell] = posyd[n] - r + y;
-            z = poszd[cell] = poszd[n] - r + z;
             for (k = 0; k < 8; k++) childd[cell*8+k] = -1;
 
             if (patch != cell) { 
@@ -278,14 +259,12 @@ void TreeBuildingKernel()
             j = 0;
             if (x < posxd[ch]) j = 1;
             if (y < posyd[ch]) j += 2;
-            if (z < poszd[ch]) j += 4;
             childd[cell*8+j] = ch;
 
             n = cell;
             j = 0;
             if (x < px) j = 1;
             if (y < py) j += 2;
-            if (z < pz) j += 4;
 
             ch = childd[n*8+j];
             // repeat until the two bodies are different children
@@ -317,7 +296,7 @@ __global__
 void SummarizationKernel()
 {
   register int i, j, k, ch, inc, missing, cnt, bottom;
-  register float m, cm, px, py, pz;
+  register float m, cm, px, py;
   __shared__ volatile int child[THREADS3 * 8];
 
   bottom = bottomd;
@@ -333,7 +312,6 @@ void SummarizationKernel()
       cm = 0.0f;
       px = 0.0f;
       py = 0.0f;
-      pz = 0.0f;
       cnt = 0;
       j = 0;
       for (i = 0; i < 8; i++) {
@@ -357,7 +335,6 @@ void SummarizationKernel()
             cm += m;
             px += posxd[ch] * m;
             py += posyd[ch] * m;
-            pz += poszd[ch] * m;
           }
           j++;
         }
@@ -381,7 +358,6 @@ void SummarizationKernel()
           cm += m;
           px += posxd[ch] * m;
           py += posyd[ch] * m;
-          pz += poszd[ch] * m;
         }
         // repeat until we are done or child is not ready
       } while ((m >= 0.0f) && (missing != 0));
@@ -393,7 +369,6 @@ void SummarizationKernel()
       m = 1.0f / cm;
       posxd[k] = px * m;
       posyd[k] = py * m;
-      poszd[k] = pz * m;
       __threadfence();  // make sure data are visible before setting mass
       massd[k] = cm;
       k += inc;  // move on to next cell
@@ -448,7 +423,7 @@ __global__
 void ForceCalculationKernel()
 {
   register int i, j, k, n, depth, base, sbase, diff, t;
-  register float px, py, pz, ax, ay, az, dx, dy, dz, tmp;
+  register float px, py, ax, ay, dx, dy, tmp;
   __shared__ volatile int pos[MAXDEPTH * THREADS5/WARPSIZE], node[MAXDEPTH * THREADS5/WARPSIZE];
   __shared__ float dq[MAXDEPTH * THREADS5/WARPSIZE];
 
@@ -487,11 +462,9 @@ void ForceCalculationKernel()
       // cache position info
       px = posxd[i];
       py = posyd[i];
-      pz = poszd[i];
 
       ax = 0.0f;
       ay = 0.0f;
-      az = 0.0f;
 
       // initialize iteration stack, i.e., push root node onto stack
       depth = j;
@@ -512,14 +485,12 @@ void ForceCalculationKernel()
           if (n >= 0) {
             dx = posxd[n] - px;
             dy = posyd[n] - py;
-            dz = poszd[n] - pz;
-            tmp = dx*dx + (dy*dy + (dz*dz + epssqd));  // compute distance squared (plus softening)
+            tmp = dx*dx + (dy*dy + (epssqd));  // compute distance squared (plus softening)
             if ((n < nbodiesd) || __all(tmp >= dq[depth])) {  // check if all threads agree that cell is far enough away (or is a body)
               tmp = rsqrtf(tmp);  // compute distance
               tmp = massd[n] * tmp * tmp * tmp;
               ax += dx * tmp;
               ay += dy * tmp;
-              az += dz * tmp;
             } else {
               // push cell onto stack
               depth++;
@@ -538,7 +509,6 @@ void ForceCalculationKernel()
       // save computed acceleration
       accxd[i] = ax;
       accyd[i] = ay;
-      acczd[i] = az;
     }
   }
 }
@@ -605,15 +575,15 @@ int init()
   float time, timing[7];
   clock_t starttime, endtime;
   cudaEvent_t start, stop;
-  float *mass, *posx, *posy, *posz;
+  float *mass, *posx, *posy;
 
   int *errl, *sortl, *childl, *countl, *startl;
   float *massl;
-  float *posxl, *posyl, *poszl;
-  float *accxl, *accyl, *acczl;
-  float *maxxl, *maxyl, *maxzl;
-  float *minxl, *minyl, *minzl;
-   double rsc, vsc, r, v, x, y, z, sq, scale;
+  float *posxl, *posyl;
+  float *accxl, *accyl;
+  float *maxxl, *maxyl;
+  float *minxl, *minyl;
+   double rsc, vsc, r, v, x, y, sq, scale;
 
   // perform some checks
 
@@ -698,8 +668,6 @@ int init()
   if (posx == NULL) {fprintf(stderr, "cannot allocate posx\n");  exit(-1);}
   posy = (float *)malloc(sizeof(float) * nbodies);
   if (posy == NULL) {fprintf(stderr, "cannot allocate posy\n");  exit(-1);}
-  posz = (float *)malloc(sizeof(float) * nbodies);
-  if (posz == NULL) {fprintf(stderr, "cannot allocate posz\n");  exit(-1);}
  
   // generate input
   {
@@ -712,13 +680,11 @@ int init()
       do {
         x = drnd()*2.0 - 1.0;
         y = drnd()*2.0 - 1.0;
-        z = drnd()*2.0 - 1.0;
-        sq = x*x + y*y + z*z;
+        sq = x*x + y*y;
       } while (sq > 1.0);
       scale = rsc * r / sqrt(sq);
       posx[i] = x * scale;
       posy[i] = y * scale;
-      posz[i] = z * scale;
 
       do {
         x = drnd();
@@ -728,8 +694,7 @@ int init()
       do {
         x = drnd()*2.0 - 1.0;
         y = drnd()*2.0 - 1.0;
-        z = drnd()*2.0 - 1.0;
-        sq = x*x + y*y + z*z;
+        sq = x*x + y*y;
       } while (sq > 1.0);
       scale = vsc * v / sqrt(sq);
     }
@@ -740,7 +705,6 @@ int init()
   if (cudaSuccess != cudaMalloc((void **)&massl, sizeof(float) * (nnodes+1))) fprintf(stderr, "could not allocate massd\n");  CudaTest("couldn't allocate massd");
   if (cudaSuccess != cudaMalloc((void **)&posxl, sizeof(float) * (nnodes+1))) fprintf(stderr, "could not allocate posxd\n");  CudaTest("couldn't allocate posxd");
   if (cudaSuccess != cudaMalloc((void **)&posyl, sizeof(float) * (nnodes+1))) fprintf(stderr, "could not allocate posyd\n");  CudaTest("couldn't allocate posyd");
-  if (cudaSuccess != cudaMalloc((void **)&poszl, sizeof(float) * (nnodes+1))) fprintf(stderr, "could not allocate poszd\n");  CudaTest("couldn't allocate poszd");
   if (cudaSuccess != cudaMalloc((void **)&countl, sizeof(int) * (nnodes+1))) fprintf(stderr, "could not allocate countd\n");  CudaTest("couldn't allocate countd");
   if (cudaSuccess != cudaMalloc((void **)&startl, sizeof(int) * (nnodes+1))) fprintf(stderr, "could not allocate startd\n");  CudaTest("couldn't allocate startd");
 
@@ -750,15 +714,12 @@ int init()
 
   accxl = (float *)&childl[3*inc];
   accyl = (float *)&childl[4*inc];
-  acczl = (float *)&childl[5*inc];
   sortl = (int *)&childl[6*inc];
 
   if (cudaSuccess != cudaMalloc((void **)&maxyl, sizeof(float) * blocks)) fprintf(stderr, "could not allocate maxyd\n");  CudaTest("couldn't allocate maxyd");
   if (cudaSuccess != cudaMalloc((void **)&maxxl, sizeof(float) * blocks)) fprintf(stderr, "could not allocate maxxd\n");  CudaTest("couldn't allocate maxxd");
-  if (cudaSuccess != cudaMalloc((void **)&maxzl, sizeof(float) * blocks)) fprintf(stderr, "could not allocate maxzd\n");  CudaTest("couldn't allocate maxzd");
   if (cudaSuccess != cudaMalloc((void **)&minxl, sizeof(float) * blocks)) fprintf(stderr, "could not allocate minxd\n");  CudaTest("couldn't allocate minxd");
   if (cudaSuccess != cudaMalloc((void **)&minyl, sizeof(float) * blocks)) fprintf(stderr, "could not allocate minyd\n");  CudaTest("couldn't allocate minyd");
-  if (cudaSuccess != cudaMalloc((void **)&minzl, sizeof(float) * blocks)) fprintf(stderr, "could not allocate minzd\n");  CudaTest("couldn't allocate minzd");
 
   // copy symbol (__constant__)
   if (cudaSuccess != cudaMemcpyToSymbol(nnodesd, &nnodes, sizeof(int))) fprintf(stderr, "copying of nnodes to device failed\n");  CudaTest("nnode copy to device failed");
@@ -775,22 +736,17 @@ int init()
   if (cudaSuccess != cudaMemcpyToSymbol(massd, &massl, sizeof(void*))) fprintf(stderr, "copying of massl to device failed\n");  CudaTest("massl copy to device failed");
   if (cudaSuccess != cudaMemcpyToSymbol(posxd, &posxl, sizeof(void*))) fprintf(stderr, "copying of posxl to device failed\n");  CudaTest("posxl copy to device failed");
   if (cudaSuccess != cudaMemcpyToSymbol(posyd, &posyl, sizeof(void*))) fprintf(stderr, "copying of posyl to device failed\n");  CudaTest("posyl copy to device failed");
-  if (cudaSuccess != cudaMemcpyToSymbol(poszd, &poszl, sizeof(void*))) fprintf(stderr, "copying of poszl to device failed\n");  CudaTest("poszl copy to device failed");
   if (cudaSuccess != cudaMemcpyToSymbol(accxd, &accxl, sizeof(void*))) fprintf(stderr, "copying of accxl to device failed\n");  CudaTest("accxl copy to device failed");
   if (cudaSuccess != cudaMemcpyToSymbol(accyd, &accyl, sizeof(void*))) fprintf(stderr, "copying of accyl to device failed\n");  CudaTest("accyl copy to device failed");
-  if (cudaSuccess != cudaMemcpyToSymbol(acczd, &acczl, sizeof(void*))) fprintf(stderr, "copying of acczl to device failed\n");  CudaTest("acczl copy to device failed");
   if (cudaSuccess != cudaMemcpyToSymbol(maxxd, &maxxl, sizeof(void*))) fprintf(stderr, "copying of maxxl to device failed\n");  CudaTest("maxxl copy to device failed");
   if (cudaSuccess != cudaMemcpyToSymbol(maxyd, &maxyl, sizeof(void*))) fprintf(stderr, "copying of maxyl to device failed\n");  CudaTest("maxyl copy to device failed");
-  if (cudaSuccess != cudaMemcpyToSymbol(maxzd, &maxzl, sizeof(void*))) fprintf(stderr, "copying of maxzl to device failed\n");  CudaTest("maxzl copy to device failed");
   if (cudaSuccess != cudaMemcpyToSymbol(minxd, &minxl, sizeof(void*))) fprintf(stderr, "copying of minxl to device failed\n");  CudaTest("minxl copy to device failed");
   if (cudaSuccess != cudaMemcpyToSymbol(minyd, &minyl, sizeof(void*))) fprintf(stderr, "copying of minyl to device failed\n");  CudaTest("minyl copy to device failed");
-  if (cudaSuccess != cudaMemcpyToSymbol(minzd, &minzl, sizeof(void*))) fprintf(stderr, "copying of minzl to device failed\n");  CudaTest("minzl copy to device failed");
   
   // Copy data
   if (cudaSuccess != cudaMemcpy(massl, mass, sizeof(float) * nbodies, cudaMemcpyHostToDevice)) fprintf(stderr, "copying of mass to device failed\n");  CudaTest("mass copy to device failed");
   if (cudaSuccess != cudaMemcpy(posxl, posx, sizeof(float) * nbodies, cudaMemcpyHostToDevice)) fprintf(stderr, "copying of posx to device failed\n");  CudaTest("posx copy to device failed");
   if (cudaSuccess != cudaMemcpy(posyl, posy, sizeof(float) * nbodies, cudaMemcpyHostToDevice)) fprintf(stderr, "copying of posy to device failed\n");  CudaTest("posy copy to device failed");
-  if (cudaSuccess != cudaMemcpy(poszl, posz, sizeof(float) * nbodies, cudaMemcpyHostToDevice)) fprintf(stderr, "copying of posz to device failed\n");  CudaTest("posz copy to device failed");
 
   // run timesteps (launch GPU kernels)
   cudaEventCreate(&start);  cudaEventCreate(&stop);  
@@ -840,7 +796,6 @@ int init()
   if (cudaSuccess != cudaMemcpy(&error, errl, sizeof(int), cudaMemcpyDeviceToHost)) fprintf(stderr, "copying of err from device failed\n");  CudaTest("err copy from device failed");
   if (cudaSuccess != cudaMemcpy(posx, posxl, sizeof(float) * nbodies, cudaMemcpyDeviceToHost)) fprintf(stderr, "copying of posx from device failed\n");  CudaTest("posx copy from device failed");
   if (cudaSuccess != cudaMemcpy(posy, posyl, sizeof(float) * nbodies, cudaMemcpyDeviceToHost)) fprintf(stderr, "copying of posy from device failed\n");  CudaTest("posy copy from device failed");
-  if (cudaSuccess != cudaMemcpy(posz, poszl, sizeof(float) * nbodies, cudaMemcpyDeviceToHost)) fprintf(stderr, "copying of posz from device failed\n");  CudaTest("posz copy from device failed");
 
   // runtime = (int) (1000.0f * (endtime - starttime) / CLOCKS_PER_SEC);
   // fprintf(stderr, "runtime: %d ms  (", runtime);
@@ -864,23 +819,19 @@ int init()
   free(mass);
   free(posx);
   free(posy);
-  free(posz);
 
   cudaFree(errl);
   cudaFree(childl);
   cudaFree(massl);
   cudaFree(posxl);
   cudaFree(posyl);
-  cudaFree(poszl);
   cudaFree(countl);
   cudaFree(startl);
 
   cudaFree(maxxl);
   cudaFree(maxyl);
-  cudaFree(maxzl);
   cudaFree(minxl);
   cudaFree(minyl);
-  cudaFree(minzl);
 
   return 0;
 }
