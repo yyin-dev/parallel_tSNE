@@ -14,7 +14,7 @@ NVCC = nvcc -std=c++11
 NVCCFLAGS=-O3 -m64 --gpu-architecture compute_61 -ccbin /usr/bin/gcc -Iinclude/ -I.
 CXX = g++ -m64
 CXXFLAGS = -I. -Iobjs/ -O3 -Wall -Wextra -m64 -std=c++11 -ggdb -fopenmp -Wno-unknown-pragmas
-LDFLAGS = -L/usr/local/depot/cuda-10.2/lib64/ -lcuda -lcudart
+LDFLAGS = -L/usr/local/depot/cuda-10.2/lib64/ -lcudart
 
 default: $(APP_NAME)
 

@@ -155,6 +155,8 @@ void TSNE::run(float* X, int N, int D, float* Y,
     compute_start = Clock::now();
     const int eval_interval = 100;
     for (int iter = 0; iter < max_iter; iter++) {
+        printf("iter: %d\n", iter);
+
         bool need_eval_error = (verbose && ((iter > 0 && iter % eval_interval == 0) || (iter == max_iter - 1)));
 
         // Compute approximate gradient

@@ -142,4 +142,6 @@ void BHTree::compute_nonedge_forces(float theta) {
     compute_center_of_mass(d_x, d_y, d_mass, d_index, num_points);
     sort_particles(d_count, d_start, d_sorted, d_child, d_index, num_points);
     compute_forces(d_x, d_y, d_ax, d_ay, d_mass, d_sorted, d_child, d_left, d_right, num_points, 1.0);
+
+    cudaDeviceSynchronize();
 }
