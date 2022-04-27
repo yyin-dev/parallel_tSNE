@@ -16,7 +16,7 @@ inline void gpu_assert(cudaError_t code, const char *file, int line, bool abort 
     }
 }
 
-void init(float* points, int num_points);
+int compute_nonedge_forces_cuda(float* points, int num_points, float* neg_forces, float* norm);
 
 // Constructor
 // Allocate memory on host and device.
@@ -24,6 +24,7 @@ BHTree::BHTree() {}
 
 BHTree::~BHTree() {}
 
-void BHTree::compute_nonedge_forces(float* points, int num_points) {
-    init(points, num_points); 
+void BHTree::compute_nonedge_forces(float* points, int num_points, float* neg_forces, float* norm) {
+    int ret_val = compute_nonedge_forces_cuda(points, num_points, neg_forces, norm); 
+    assert(ret_val == 0);
 }

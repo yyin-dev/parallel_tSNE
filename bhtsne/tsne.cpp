@@ -31,6 +31,8 @@ using namespace std::chrono;
 typedef std::chrono::high_resolution_clock Clock;
 typedef std::chrono::duration<float> dsec;
 
+// Remove this macro to compute negative forces with GPU
+// #define NEG_FORCE_CPU
 
 #ifdef _OPENMP
     #define NUM_THREADS(N) ((N) >= 0 ? (N) : omp_get_num_procs() + (N) + 1)
@@ -153,8 +155,6 @@ void TSNE::run(float* X, int N, int D, float* Y,
     compute_start = Clock::now();
     const int eval_interval = 100;
     for (int iter = 0; iter < max_iter; iter++) {
-        printf("iter: %d\n", iter);
-
         bool need_eval_error = (verbose && ((iter > 0 && iter % eval_interval == 0) || (iter == max_iter - 1)));
 
         // Compute approximate gradient
@@ -217,16 +217,10 @@ void TSNE::run(float* X, int N, int D, float* Y,
 float TSNE::computeGradient(int* inp_row_P, int* inp_col_P, float* inp_val_P, float* Y, int N, int no_dims, float* dC, float theta, bool eval_error)
 {
     // Compute all terms required for t-SNE gradient
-    float* Q = new float[N];
     float* pos_f = new float[N * no_dims]();
-    float* neg_f = new float[N * no_dims]();
 
     float P_i_sum = 0.;
     float C = 0.;
-
-    if (pos_f == NULL || neg_f == NULL) {
-        fprintf(stderr, "Memory allocation failed!\n"); exit(1);
-    }
 
 #ifdef _OPENMP
     #pragma omp parallel for reduction(+:P_i_sum,C)
@@ -258,45 +252,53 @@ float TSNE::computeGradient(int* inp_row_P, int* inp_col_P, float* inp_val_P, fl
         }
     }
 
-    // CPU 
-    // Construct quadtree on current map
-    SplitTree* tree = new SplitTree(Y, N, no_dims);
-    
     // NoneEdge forces
+
+#ifdef NEG_FORCE_CPU
+    // CPU 
+    float* Q = new float[N];
+    float* neg_f = new float[N * no_dims]();
+    SplitTree* tree = new SplitTree(Y, N, no_dims);
     for (int n = 0; n < N; n++) {
         float q = .0;
         tree->computeNonEdgeForces(n, theta, neg_f + n * no_dims, &q);
-
         Q[n] = q;
     }
-
-    // TODO: GPU
-    BHTree *bhtree = new BHTree();
-    bhtree->compute_nonedge_forces(Y, N);
-
     float sum_Q = 0.;
     for (int i = 0; i < N; i++) {
         sum_Q += Q[i];
     }
+#else
+    // GPU
+    float* neg_ff = new float[N * no_dims]();
+    float sum_QQ;
+    BHTree *bhtree = new BHTree();
+    bhtree->compute_nonedge_forces(Y, N, neg_ff, &sum_QQ);
+#endif
 
     // Compute final t-SNE gradient
     for (int i = 0; i < N * no_dims; i++) {
+#ifdef NEG_FORCE_CPU
         dC[i] = pos_f[i] - (neg_f[i] / sum_Q);
+#else
+        dC[i] = pos_f[i] - (neg_ff[i] / sum_QQ);
+#endif
     }
 
-    printf("CPU:\n");
-    for (int i = 0; i < 10; i++) {
-        printf("%.2e %.2e\n", (neg_f + i * no_dims)[0], (neg_f + i * no_dims)[1]);
-    }
-    printf("sum_Q: %f\n", sum_Q);
-
-    delete tree;
-    delete[] pos_f;
-    delete[] neg_f;
-    delete[] Q;
-
+#ifdef NEG_FORCE_CPU
     C += P_i_sum * log(sum_Q);
 
+    delete tree;
+    delete[] neg_f;
+    delete[] Q;
+#else
+    C += P_i_sum * log(sum_QQ);
+
+    delete[] neg_ff;
+    delete bhtree;
+#endif
+
+    delete[] pos_f;
     return C;
 }
 

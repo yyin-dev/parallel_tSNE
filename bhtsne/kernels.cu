@@ -67,7 +67,8 @@ Author: Martin Burtscher
 // TODO:
 // [X] Octree -> Quadtree
 // [X] sumQ
-// [] CPU (+) + GPU (-) integration 
+// [X] CPU (+) + GPU (-) integration 
+// [] GPU & CPU parallel
 // [] ISPC & OpenMP + CUDA
 // [] Perf analysis (after 30th)
 
@@ -596,7 +597,7 @@ void check_params() {
 
 /******************************************************************************/
 
-int init(float* points, int num_points) {
+int compute_nonedge_forces_cuda(float* points, int num_points, float* neg_forces, float* norm) {
   int blocks;
   int nnodes, nbodies;
   int error;
@@ -619,7 +620,6 @@ int init(float* points, int num_points) {
   if (nnodes < 1024*blocks) nnodes = 1024*blocks;
   while ((nnodes & (WARPSIZE-1)) != 0) nnodes++; // nnodes & WARPSIZE-1 == 0
   nnodes--;
-  printf("nnodes: %d\n", nnodes);
 
   dtime = 0.025;  dthf = dtime * 0.5f;
   itolsq = 1.0f / (0.5 * 0.5);
@@ -702,7 +702,7 @@ int init(float* points, int num_points) {
   thrust::device_vector<float> qd(nnodes + 1);
   ForceCalculationKernel<<<blocks * FACTOR5, THREADS5>>>(thrust::raw_pointer_cast(qd.data()));
   CudaTest("kernel 5 launch failed");
-  float sumq = thrust::reduce(qd.begin(), qd.end(), 0.0f, thrust::plus<float>());
+  *norm = thrust::reduce(qd.begin(), qd.end(), 0.0f, thrust::plus<float>());
 
   // wait for kernels to finish
   cudaDeviceSynchronize();
@@ -718,12 +718,10 @@ int init(float* points, int num_points) {
   if (cudaSuccess != cudaMemcpy(accx, accxl, sizeof(float) * nbodies, cudaMemcpyDeviceToHost)) fprintf(stderr, "copying of accx from device failed\n");  CudaTest("accx copy from device failed");
   if (cudaSuccess != cudaMemcpy(accy, accyl, sizeof(float) * nbodies, cudaMemcpyDeviceToHost)) fprintf(stderr, "copying of accy from device failed\n");  CudaTest("accy copy from device failed");
 
-  // print output
-  printf("GPU: \n");
-  for (int j = 0; j < 10; j++) {
-    printf("%.2e %.2e\n", accx[j], accy[j]);
+  for (int i = 0; i < nbodies; i++) {
+    neg_forces[2*i] = accx[i];
+    neg_forces[2*i+1] = accy[i];
   }
-  printf("sumq: %f\n", sumq);
 
   free(mass);
   free(posx);
