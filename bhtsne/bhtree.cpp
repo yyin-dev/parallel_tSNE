@@ -16,13 +16,20 @@ inline void gpu_assert(cudaError_t code, const char *file, int line, bool abort 
     }
 }
 
+// defined in kernels.cu
+void init_cuda(int num_points);
 int compute_nonedge_forces_cuda(float* points, int num_points, float* neg_forces, float* norm);
+void cleanup_cuda();
 
 // Constructor
 // Allocate memory on host and device.
-BHTree::BHTree() {}
+BHTree::BHTree(int num_points) {
+    init_cuda(num_points);
+}
 
-BHTree::~BHTree() {}
+BHTree::~BHTree() {
+    cleanup_cuda();
+}
 
 void BHTree::compute_nonedge_forces(float* points, int num_points, float* neg_forces, float* norm) {
     int ret_val = compute_nonedge_forces_cuda(points, num_points, neg_forces, norm); 

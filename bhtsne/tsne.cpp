@@ -22,7 +22,6 @@
 #include <omp.h>
 #endif
 
-#include "bhtree.h"
 #include "tsne.h"
 #include "vptree.h"
 #include "splittree.h"
@@ -154,11 +153,12 @@ void TSNE::run(float* X, int N, int D, float* Y,
     compute_time = 0.;
     compute_start = Clock::now();
     const int eval_interval = 100;
+    BHTree *bhtree = new BHTree(N);
     for (int iter = 0; iter < max_iter; iter++) {
         bool need_eval_error = (verbose && ((iter > 0 && iter % eval_interval == 0) || (iter == max_iter - 1)));
 
         // Compute approximate gradient
-        float error = computeGradient(row_P, col_P, val_P, Y, N, no_dims, dY, theta, need_eval_error);
+        float error = computeGradient(row_P, col_P, val_P, Y, N, no_dims, dY, theta, need_eval_error, bhtree);
 
         for (int i = 0; i < N * no_dims; i++) {
             // Update gains
@@ -194,6 +194,7 @@ void TSNE::run(float* X, int N, int D, float* Y,
             compute_time = time_elapsed;
         }
     }
+    delete bhtree;
 
     if (final_error != NULL)
         *final_error = evaluateError(row_P, col_P, val_P, Y, N, no_dims, theta);
@@ -214,7 +215,7 @@ void TSNE::run(float* X, int N, int D, float* Y,
 }
 
 // Compute gradient of the t-SNE cost function (using Barnes-Hut algorithm)
-float TSNE::computeGradient(int* inp_row_P, int* inp_col_P, float* inp_val_P, float* Y, int N, int no_dims, float* dC, float theta, bool eval_error)
+float TSNE::computeGradient(int* inp_row_P, int* inp_col_P, float* inp_val_P, float* Y, int N, int no_dims, float* dC, float theta, bool eval_error, BHTree* bhtree)
 {
     // Compute all terms required for t-SNE gradient
     float* pos_f = new float[N * no_dims]();
@@ -272,7 +273,6 @@ float TSNE::computeGradient(int* inp_row_P, int* inp_col_P, float* inp_val_P, fl
     // GPU
     float* neg_ff = new float[N * no_dims]();
     float sum_QQ;
-    BHTree *bhtree = new BHTree();
     bhtree->compute_nonedge_forces(Y, N, neg_ff, &sum_QQ);
 #endif
 
@@ -295,7 +295,6 @@ float TSNE::computeGradient(int* inp_row_P, int* inp_col_P, float* inp_val_P, fl
     C += P_i_sum * log(sum_QQ);
 
     delete[] neg_ff;
-    delete bhtree;
 #endif
 
     delete[] pos_f;

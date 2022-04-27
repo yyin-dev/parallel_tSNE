@@ -597,32 +597,26 @@ void check_params() {
 
 /******************************************************************************/
 
-int compute_nonedge_forces_cuda(float* points, int num_points, float* neg_forces, float* norm) {
-  int blocks;
-  int nnodes, nbodies;
-  int error;
-  float dtime, dthf, itolsq;
-  float *mass, *posx, *posy;
+float *mass, *posx, *posy;
+float dtime, dthf, itolsq;
 
-  int *errl, *sortl, *childl, *countl, *startl;
-  float *massl;
-  float *posxl, *posyl;
-  float *accxl, *accyl;
-  float *maxxl, *maxyl;
-  float *minxl, *minyl;
+int *errl, *sortl, *childl, *countl, *startl;
+float *massl;
+float *posxl, *posyl;
+float *accxl, *accyl;
+float *maxxl, *maxyl;
+float *minxl, *minyl;
 
-  cudaGetLastError();  // reset error value
-
-  blocks = 32;
-  nbodies = num_points;
-
-  nnodes = nbodies * 2;
-  if (nnodes < 1024*blocks) nnodes = 1024*blocks;
-  while ((nnodes & (WARPSIZE-1)) != 0) nnodes++; // nnodes & WARPSIZE-1 == 0
-  nnodes--;
-
+void init_cuda(int num_points) {
   dtime = 0.025;  dthf = dtime * 0.5f;
   itolsq = 1.0f / (0.5 * 0.5);
+
+  int blocks = 32;
+  int nbodies = num_points;
+  int nnodes = nbodies * 2;
+  if (nnodes < 1024*blocks) nnodes = 1024*blocks;
+  while ((nnodes & (WARPSIZE-1)) != 0) nnodes++;
+  nnodes--;
 
   // allocate memory
   mass = (float *)malloc(sizeof(float) * nbodies);
@@ -631,12 +625,7 @@ int compute_nonedge_forces_cuda(float* points, int num_points, float* neg_forces
   if (posx == NULL) {fprintf(stderr, "cannot allocate posx\n");  exit(-1);}
   posy = (float *)malloc(sizeof(float) * nbodies);
   if (posy == NULL) {fprintf(stderr, "cannot allocate posy\n");  exit(-1);}
- 
-  for (int i = 0; i < nbodies; i++) {
-    mass[i] = 1.0;
-    posx[i] = points[2 * i];
-    posy[i] = points[2 * i + 1];
-  }
+
 
   // Allocate memory on device
   if (cudaSuccess != cudaMalloc((void **)&errl, sizeof(int))) fprintf(stderr, "could not allocate errd\n");  CudaTest("couldn't allocate errd");
@@ -677,7 +666,30 @@ int compute_nonedge_forces_cuda(float* points, int num_points, float* neg_forces
   if (cudaSuccess != cudaMemcpyToSymbol(maxyd, &maxyl, sizeof(void*))) fprintf(stderr, "copying of maxyl to device failed\n");  CudaTest("maxyl copy to device failed");
   if (cudaSuccess != cudaMemcpyToSymbol(minxd, &minxl, sizeof(void*))) fprintf(stderr, "copying of minxl to device failed\n");  CudaTest("minxl copy to device failed");
   if (cudaSuccess != cudaMemcpyToSymbol(minyd, &minyl, sizeof(void*))) fprintf(stderr, "copying of minyl to device failed\n");  CudaTest("minyl copy to device failed");
+}
 
+int compute_nonedge_forces_cuda(float* points, int num_points, float* neg_forces, float* norm) {
+  int blocks;
+  int nnodes, nbodies;
+  int error;
+
+  cudaGetLastError();  // reset error value
+
+  blocks = 32;
+  nbodies = num_points;
+
+  nnodes = nbodies * 2;
+  if (nnodes < 1024*blocks) nnodes = 1024*blocks;
+  while ((nnodes & (WARPSIZE-1)) != 0) nnodes++; // nnodes & WARPSIZE-1 == 0
+  nnodes--;
+
+  // copy data
+  for (int i = 0; i < nbodies; i++) {
+    mass[i] = 1.0;
+    posx[i] = points[2 * i];
+    posy[i] = points[2 * i + 1];
+  }
+  
   // Copy data
   if (cudaSuccess != cudaMemcpy(massl, mass, sizeof(float) * nbodies, cudaMemcpyHostToDevice)) fprintf(stderr, "copying of mass to device failed\n");  CudaTest("mass copy to device failed");
   if (cudaSuccess != cudaMemcpy(posxl, posx, sizeof(float) * nbodies, cudaMemcpyHostToDevice)) fprintf(stderr, "copying of posx to device failed\n");  CudaTest("posx copy to device failed");
@@ -723,6 +735,10 @@ int compute_nonedge_forces_cuda(float* points, int num_points, float* neg_forces
     neg_forces[2*i+1] = accy[i];
   }
 
+  return 0;
+}
+
+void cleanup_cuda() {
   free(mass);
   free(posx);
   free(posy);
@@ -739,6 +755,4 @@ int compute_nonedge_forces_cuda(float* points, int num_points, float* neg_forces
   cudaFree(maxyl);
   cudaFree(minxl);
   cudaFree(minyl);
-
-  return 0;
 }
