@@ -57,18 +57,36 @@ Author: Martin Burtscher
 #define WARPSIZE 32
 #define MAXDEPTH 32
 
+#define DEBGREE 4
 
 // TODO:
-// 1. Octree -> Quadtree
-// 2. sumQ
-// 3. CPU (+) + GPU (-) integration 
-// 4. ISPC & OpenMP + CUDA
-// 5. Perf analysis (after 30th)
+// [X] Octree -> Quadtree
+// [] sumQ
+// [] CPU (+) + GPU (-) integration 
+// [] ISPC & OpenMP + CUDA
+// [] Perf analysis (after 30th)
 
 
 /******************************************************************************/
 
-// childd is aliased with velxd, velyd, velzd, accxd, accyd, acczd, and sortd but they never use the same memory locations
+// With octree (8 children):
+// childd is aliased with accxd, accyd, and sortd 
+// but they never use the same memory locations.
+// Explanation:
+// Let P be the number of bodies/points, N be the number of nodes.
+// N >= 2P. Nodes will be allocated in range [P, N] (see AtomicSub in 
+// TreeBuildingKernel) and will be accessed with 8*index+j. 
+// With index >= P, 8*index+j >= 8P.
+// On the other hand, sortd starts at index < 6*(P + WARPSIZE) and ends at 
+// 7*(P + WARPSIZE). As long as P >= 7*WARPSIZE, the two ranges won't collide.
+//
+// With quadtree (4 children):
+// 4*index+j >= 4P.
+// By default, accxd starts at 3*inc, accyd starts at 4*inc, sortd starts at 
+// 6*inc. We can shift the offsets such that accxd starts at 0, accyd starts
+// at inc, and sortd starts at 2*inc. This way, sortd ends at 3*(P+WARPSIZE).
+// 3*(P + WARPSIZE) <= 4P holds as long as P >= 3*WARPSIZE.
+
 __constant__ int nnodesd, nbodiesd;
 __constant__ float dtimed, dthfd, itolsqd;
 __constant__ volatile float *massd, *posxd, *posyd, *accxd, *accyd;
@@ -167,8 +185,8 @@ void BoundingBoxKernel()
       startd[k] = 0;
       posxd[k] = (minx + maxx) * 0.5f;
       posyd[k] = (miny + maxy) * 0.5f;
-      k *= 8;
-      for (i = 0; i < 8; i++) childd[k + i] = -1;
+      k *= DEBGREE;
+      for (i = 0; i < DEBGREE; i++) childd[k + i] = -1;
 
       stepd++;
     }
@@ -216,7 +234,7 @@ void TreeBuildingKernel()
     }
 
     // follow path to leaf cell
-    ch = childd[n*8+j];
+    ch = childd[n*DEBGREE+j];
     while (ch >= nbodiesd) {
       n = ch;
       depth++;
@@ -225,11 +243,11 @@ void TreeBuildingKernel()
       // determine which child to follow
       if (posxd[n] < px) j = 1;
       if (posyd[n] < py) j += 2;
-      ch = childd[n*8+j];
+      ch = childd[n*DEBGREE+j];
     }
 
     if (ch != -2) {  // skip if child pointer is locked and try again later
-      locked = n*8+j;
+      locked = n*DEBGREE+j;
       if (ch == atomicCAS((int *)&childd[locked], ch, -2)) {  // try to lock
         if (ch == -1) {
           // if null, just insert the new body
@@ -255,26 +273,26 @@ void TreeBuildingKernel()
             startd[cell] = -1;
             x = posxd[cell] = posxd[n] - r + x;
             y = posyd[cell] = posyd[n] - r + y;
-            for (k = 0; k < 8; k++) childd[cell*8+k] = -1;
+            for (k = 0; k < DEBGREE; k++) childd[cell*DEBGREE+k] = -1;
 
             if (patch != cell) { 
-              childd[n*8+j] = cell;
+              childd[n*DEBGREE+j] = cell;
             }
 
             j = 0;
             if (x < posxd[ch]) j = 1;
             if (y < posyd[ch]) j += 2;
-            childd[cell*8+j] = ch;
+            childd[cell*DEBGREE+j] = ch;
 
             n = cell;
             j = 0;
             if (x < px) j = 1;
             if (y < py) j += 2;
 
-            ch = childd[n*8+j];
+            ch = childd[n*DEBGREE+j];
             // repeat until the two bodies are different children
           } while (ch >= 0);
-          childd[n*8+j] = i;
+          childd[n*DEBGREE+j] = i;
           __threadfence();  // push out subtree
           childd[locked] = patch;
         }
@@ -302,7 +320,7 @@ void SummarizationKernel()
 {
   register int i, j, k, ch, inc, missing, cnt, bottom;
   register float m, cm, px, py;
-  __shared__ volatile int child[THREADS3 * 8];
+  __shared__ volatile int child[THREADS3 * DEBGREE];
 
   bottom = bottomd;
   inc = blockDim.x * gridDim.x;
@@ -319,13 +337,13 @@ void SummarizationKernel()
       py = 0.0f;
       cnt = 0;
       j = 0;
-      for (i = 0; i < 8; i++) {
-        ch = childd[k*8+i];
+      for (i = 0; i < DEBGREE; i++) {
+        ch = childd[k*DEBGREE+i];
         if (ch >= 0) {
           if (i != j) {
             // move children to front (needed later for speed)
-            childd[k*8+i] = -1;
-            childd[k*8+j] = ch;
+            childd[k*DEBGREE+i] = -1;
+            childd[k*DEBGREE+j] = ch;
           }
           child[missing*THREADS3+threadIdx.x] = ch;  // cache missing children
           m = massd[ch];
@@ -400,8 +418,8 @@ void SortKernel()
   while (k >= bottom) {
     start = startd[k];
     if (start >= 0) {
-      for (i = 0; i < 8; i++) {
-        ch = childd[k*8+i];
+      for (i = 0; i < DEBGREE; i++) {
+        ch = childd[k*DEBGREE+i];
         if (ch >= nbodiesd) {
           // child is a cell
           startd[ch] = start;  // set start ID of child
@@ -478,9 +496,9 @@ void ForceCalculationKernel()
 
       while (depth >= j) {
         // stack is not empty
-        while ((t = pos[depth]) < 8) {
+        while ((t = pos[depth]) < DEBGREE) {
           // node on top of stack has more children to process
-          n = childd[node[depth]*8+t];  // load child pointer
+          n = childd[node[depth]*DEBGREE+t];  // load child pointer
           if (sbase == threadIdx.x) {
             // I'm the first thread in the warp
             pos[depth] = t + 1;
@@ -533,50 +551,15 @@ static void CudaTest(const char *msg)
 }
 
 
-/******************************************************************************/
-
-// random number generator
-
-#define MULT 1103515245
-#define ADD 12345
-#define MASK 0x7FFFFFFF
-#define TWOTO31 2147483648.0
-
-static int A = 1;
-static int B = 0;
-static int randx = 1;
-static int lastrand;
-
-
-static void drndset(int seed)
-{
-   A = 1;
-   B = 0;
-   randx = (A * seed + B) & MASK;
-   A = (MULT * A) & MASK;
-   B = (MULT * B + ADD) & MASK;
-}
-
-
-static double drnd()
-{
-   lastrand = randx;
-   randx = (A * randx + B) & MASK;
-   return (double)lastrand / TWOTO31;
-}
-
 
 /******************************************************************************/
 
-int init(float* points, int num_points)
-{
-   int i, blocks;
-   int nnodes, nbodies, step, timesteps;
-    int runtime;
+int init(float* points, int num_points) {
+  int i, blocks;
+  int nnodes, nbodies;
   int error;
-   float dtime, dthf, itolsq;
+  float dtime, dthf, itolsq;
   float time, timing[7];
-  clock_t starttime, endtime;
   cudaEvent_t start, stop;
   float *mass, *posx, *posy;
 
@@ -586,15 +569,6 @@ int init(float* points, int num_points)
   float *accxl, *accyl;
   float *maxxl, *maxyl;
   float *minxl, *minyl;
-
-  // perform some checks
-
-  // fprintf(stderr, "CUDA BarnesHut v2.2\n");
-//   if (argc != 3) {
-//     fprintf(stderr, "\n");
-//     fprintf(stderr, "arguments: number_of_bodies number_of_timesteps\n");
-//     exit(-1);
-//   }
 
   int deviceCount;
   cudaGetDeviceCount(&deviceCount);
@@ -634,14 +608,6 @@ int init(float* points, int num_points)
     exit(-1);
   }
 
-  // set L1/shared memory configuration [No significant difference]
-  // cudaFuncSetCacheConfig(BoundingBoxKernel, cudaFuncCachePreferShared);
-  // cudaFuncSetCacheConfig(TreeBuildingKernel, cudaFuncCachePreferL1);
-  // cudaFuncSetCacheConfig(SummarizationKernel, cudaFuncCachePreferShared);
-  // cudaFuncSetCacheConfig(SortKernel, cudaFuncCachePreferL1);
-  // cudaFuncSetCacheConfig(ForceCalculationKernel, cudaFuncCachePreferL1);
-  // cudaFuncSetCacheConfig(IntegrationKernel, cudaFuncCachePreferL1);
-
   cudaGetLastError();  // reset error value
   for (i = 0; i < 7; i++) timing[i] = 0.0f;
 
@@ -659,9 +625,6 @@ int init(float* points, int num_points)
   itolsq = 1.0f / (0.5 * 0.5);
 
   // allocate memory
-  fprintf(stderr, "nodes = %d\n", nnodes+1);
-  fprintf(stderr, "configuration: %d bodies, %d time steps\n", nbodies, timesteps);
-
   mass = (float *)malloc(sizeof(float) * nbodies);
   if (mass == NULL) {fprintf(stderr, "cannot allocate mass\n");  exit(-1);}
   posx = (float *)malloc(sizeof(float) * nbodies);
@@ -669,46 +632,14 @@ int init(float* points, int num_points)
   posy = (float *)malloc(sizeof(float) * nbodies);
   if (posy == NULL) {fprintf(stderr, "cannot allocate posy\n");  exit(-1);}
  
-  // generate input
-  {
-    // double rsc, vsc, r, v, x, y, sq, scale;
-    // drndset(7);
-    // rsc = (3 * 3.1415926535897932384626433832795) / 16;
-    // vsc = sqrt(1.0 / rsc);
-    // for (i = 0; i < nbodies; i++) {
-    //   mass[i] = 1.0 / nbodies;
-    //   r = 1.0 / sqrt(pow(drnd()*0.999, -2.0/3.0) - 1);
-    //   do {
-    //     x = drnd()*2.0 - 1.0;
-    //     y = drnd()*2.0 - 1.0;
-    //     sq = x*x + y*y;
-    //   } while (sq > 1.0);
-    //   scale = rsc * r / sqrt(sq);
-    //   posx[i] = x * scale;
-    //   posy[i] = y * scale;
-
-    //   do {
-    //     x = drnd();
-    //     y = drnd() * 0.1;
-    //   } while (y > x*x * pow(1 - x*x, 3.5));
-    //   v = x * sqrt(2.0 / sqrt(1 + r*r));
-    //   do {
-    //     x = drnd()*2.0 - 1.0;
-    //     y = drnd()*2.0 - 1.0;
-    //     sq = x*x + y*y;
-    //   } while (sq > 1.0);
-    //   scale = vsc * v / sqrt(sq);
-    // }
-
-    for (int i = 0; i < nbodies; i++) {
-        mass[i] = 1.0;
-        posx[i] = points[2 * i];
-        posy[i] = points[2 * i + 1];
-    }
+  for (int i = 0; i < nbodies; i++) {
+    mass[i] = 1.0;
+    posx[i] = points[2 * i];
+    posy[i] = points[2 * i + 1];
   }
 
   if (cudaSuccess != cudaMalloc((void **)&errl, sizeof(int))) fprintf(stderr, "could not allocate errd\n");  CudaTest("couldn't allocate errd");
-  if (cudaSuccess != cudaMalloc((void **)&childl, sizeof(int) * (nnodes+1) * 8)) fprintf(stderr, "could not allocate childd\n");  CudaTest("couldn't allocate childd");
+  if (cudaSuccess != cudaMalloc((void **)&childl, sizeof(int) * (nnodes+1) * DEBGREE)) fprintf(stderr, "could not allocate childd\n");  CudaTest("couldn't allocate childd");
   if (cudaSuccess != cudaMalloc((void **)&massl, sizeof(float) * (nnodes+1))) fprintf(stderr, "could not allocate massd\n");  CudaTest("couldn't allocate massd");
   if (cudaSuccess != cudaMalloc((void **)&posxl, sizeof(float) * (nnodes+1))) fprintf(stderr, "could not allocate posxd\n");  CudaTest("couldn't allocate posxd");
   if (cudaSuccess != cudaMalloc((void **)&posyl, sizeof(float) * (nnodes+1))) fprintf(stderr, "could not allocate posyd\n");  CudaTest("couldn't allocate posyd");
@@ -716,12 +647,12 @@ int init(float* points, int num_points)
   if (cudaSuccess != cudaMalloc((void **)&startl, sizeof(int) * (nnodes+1))) fprintf(stderr, "could not allocate startd\n");  CudaTest("couldn't allocate startd");
 
   // alias arrays
-  // int inc = (nbodies + WARPSIZE - 1) & (-WARPSIZE);
   int inc = (nbodies + WARPSIZE - 1) / WARPSIZE * WARPSIZE;
 
-  accxl = (float *)&childl[3*inc];
-  accyl = (float *)&childl[4*inc];
-  sortl = (int *)&childl[6*inc];
+  accxl = (float *)childl;
+  accyl = (float *)&childl[inc];
+  sortl = (int *)&childl[2*inc];
+
 
   if (cudaSuccess != cudaMalloc((void **)&maxyl, sizeof(float) * blocks)) fprintf(stderr, "could not allocate maxyd\n");  CudaTest("couldn't allocate maxyd");
   if (cudaSuccess != cudaMalloc((void **)&maxxl, sizeof(float) * blocks)) fprintf(stderr, "could not allocate maxxd\n");  CudaTest("couldn't allocate maxxd");
@@ -756,7 +687,6 @@ int init(float* points, int num_points)
 
   // run timesteps (launch GPU kernels)
   cudaEventCreate(&start);  cudaEventCreate(&stop);  
-  starttime = clock();
   cudaEventRecord(start, 0);
   InitializationKernel<<<1, 1>>>();
   cudaEventRecord(stop, 0);  cudaEventSynchronize(stop);  cudaEventElapsedTime(&time, start, stop);
@@ -795,7 +725,6 @@ int init(float* points, int num_points)
   CudaTest("kernel 5 launch failed");
   ///////
 
-  endtime = clock();
   CudaTest("kernel launch failed");
   cudaEventDestroy(start);  cudaEventDestroy(stop);
 
@@ -809,19 +738,6 @@ int init(float* points, int num_points)
   accy = (float *)malloc(sizeof(float) * nbodies);
   if (cudaSuccess != cudaMemcpy(accx, accxl, sizeof(float) * nbodies, cudaMemcpyDeviceToHost)) fprintf(stderr, "copying of accx from device failed\n");  CudaTest("accx copy from device failed");
   if (cudaSuccess != cudaMemcpy(accy, accyl, sizeof(float) * nbodies, cudaMemcpyDeviceToHost)) fprintf(stderr, "copying of accy from device failed\n");  CudaTest("accy copy from device failed");
-
-  // runtime = (int) (1000.0f * (endtime - starttime) / CLOCKS_PER_SEC);
-  // fprintf(stderr, "runtime: %d ms  (", runtime);
-  // time = 0;
-  // for (i = 1; i < 7; i++) {
-  //   fprintf(stderr, " %.1f ", timing[i]);
-  //   time += timing[i];
-  // }
-  // if (error == 0) {
-  //   fprintf(stderr, ") = %.1f\n", time);
-  // } else {
-  //   fprintf(stderr, ") = %.1f FAILED %d\n", time, error);
-  // }
 
   // print output
   // for (i = 0; i < nbodies; i++) {
