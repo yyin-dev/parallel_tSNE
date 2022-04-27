@@ -59,6 +59,9 @@ Author: Martin Burtscher
 
 #define DEBGREE 4
 
+// Remove for profiling/benchmarking
+#define CHECK_ERROR
+
 // TODO:
 // [X] Octree -> Quadtree
 // [] sumQ
@@ -540,6 +543,7 @@ void ForceCalculationKernel()
 
 static void CudaTest(const char *msg)
 {
+#ifdef CHECK_ERROR
   cudaError_t e;
 
   cudaDeviceSynchronize();
@@ -548,28 +552,10 @@ static void CudaTest(const char *msg)
     fprintf(stderr, "%s\n", cudaGetErrorString(e));
     exit(-1);
   }
+#endif
 }
 
-
-
-/******************************************************************************/
-
-int init(float* points, int num_points) {
-  int i, blocks;
-  int nnodes, nbodies;
-  int error;
-  float dtime, dthf, itolsq;
-  float time, timing[7];
-  cudaEvent_t start, stop;
-  float *mass, *posx, *posy;
-
-  int *errl, *sortl, *childl, *countl, *startl;
-  float *massl;
-  float *posxl, *posyl;
-  float *accxl, *accyl;
-  float *maxxl, *maxyl;
-  float *minxl, *minyl;
-
+void check_device() {
   int deviceCount;
   cudaGetDeviceCount(&deviceCount);
   if (deviceCount == 0) {
@@ -590,11 +576,9 @@ int init(float* points, int num_points) {
     fprintf(stderr, "Warp size must be %d\n", deviceProp.warpSize);
     exit(-1);
   }
+}
 
-  // blocks = deviceProp.multiProcessorCount;
-  blocks = 32;
-  fprintf(stderr, "blocks = %d\n", blocks);
-
+void check_params() {
   if ((WARPSIZE <= 0) || (WARPSIZE & (WARPSIZE-1) != 0)) {
     fprintf(stderr, "Warp size must be greater than zero and a power of two\n");
     exit(-1);
@@ -607,12 +591,28 @@ int init(float* points, int num_points) {
     fprintf(stderr, "THREADS1 must be greater than zero and a power of two\n");
     exit(-1);
   }
+}
+
+/******************************************************************************/
+
+int init(float* points, int num_points) {
+  int blocks;
+  int nnodes, nbodies;
+  int error;
+  float dtime, dthf, itolsq;
+  float *mass, *posx, *posy;
+
+  int *errl, *sortl, *childl, *countl, *startl;
+  float *massl;
+  float *posxl, *posyl;
+  float *accxl, *accyl;
+  float *maxxl, *maxyl;
+  float *minxl, *minyl;
 
   cudaGetLastError();  // reset error value
-  for (i = 0; i < 7; i++) timing[i] = 0.0f;
 
+  blocks = 32;
   nbodies = num_points;
-  printf("nbodies: %d\n", nbodies);
 
   nnodes = nbodies * 2;
   if (nnodes < 1024*blocks) nnodes = 1024*blocks;
@@ -620,7 +620,6 @@ int init(float* points, int num_points) {
   nnodes--;
   printf("nnodes: %d\n", nnodes);
 
-//   timesteps = atoi(argv[2]);
   dtime = 0.025;  dthf = dtime * 0.5f;
   itolsq = 1.0f / (0.5 * 0.5);
 
@@ -652,7 +651,6 @@ int init(float* points, int num_points) {
   accxl = (float *)childl;
   accyl = (float *)&childl[inc];
   sortl = (int *)&childl[2*inc];
-
 
   if (cudaSuccess != cudaMalloc((void **)&maxyl, sizeof(float) * blocks)) fprintf(stderr, "could not allocate maxyd\n");  CudaTest("couldn't allocate maxyd");
   if (cudaSuccess != cudaMalloc((void **)&maxxl, sizeof(float) * blocks)) fprintf(stderr, "could not allocate maxxd\n");  CudaTest("couldn't allocate maxxd");
@@ -686,47 +684,23 @@ int init(float* points, int num_points) {
   if (cudaSuccess != cudaMemcpy(posyl, posy, sizeof(float) * nbodies, cudaMemcpyHostToDevice)) fprintf(stderr, "copying of posy to device failed\n");  CudaTest("posy copy to device failed");
 
   // run timesteps (launch GPU kernels)
-  cudaEventCreate(&start);  cudaEventCreate(&stop);  
-  cudaEventRecord(start, 0);
   InitializationKernel<<<1, 1>>>();
-  cudaEventRecord(stop, 0);  cudaEventSynchronize(stop);  cudaEventElapsedTime(&time, start, stop);
-  timing[0] += time;
   CudaTest("kernel 0 launch failed");
 
-  //////
-  cudaEventRecord(start, 0);
   BoundingBoxKernel<<<blocks * FACTOR1, THREADS1>>>();
-  cudaEventRecord(stop, 0);  cudaEventSynchronize(stop);  cudaEventElapsedTime(&time, start, stop);
-  timing[1] += time;
   CudaTest("kernel 1 launch failed");
 
-  cudaEventRecord(start, 0);
   TreeBuildingKernel<<<blocks * FACTOR2, THREADS2>>>();
-  cudaEventRecord(stop, 0);  cudaEventSynchronize(stop);  cudaEventElapsedTime(&time, start, stop);
-  timing[2] += time;
   CudaTest("kernel 2 launch failed");
 
-  cudaEventRecord(start, 0);
   SummarizationKernel<<<blocks * FACTOR3, THREADS3>>>();
-  cudaEventRecord(stop, 0);  cudaEventSynchronize(stop);  cudaEventElapsedTime(&time, start, stop);
-  timing[3] += time;
   CudaTest("kernel 3 launch failed");
 
-  cudaEventRecord(start, 0);
   SortKernel<<<blocks * FACTOR4, THREADS4>>>();
-  cudaEventRecord(stop, 0);  cudaEventSynchronize(stop);  cudaEventElapsedTime(&time, start, stop);
-  timing[4] += time;
   CudaTest("kernel 4 launch failed");
 
-  cudaEventRecord(start, 0);
   ForceCalculationKernel<<<blocks * FACTOR5, THREADS5>>>();
-  cudaEventRecord(stop, 0);  cudaEventSynchronize(stop);  cudaEventElapsedTime(&time, start, stop);
-  timing[5] += time;
   CudaTest("kernel 5 launch failed");
-  ///////
-
-  CudaTest("kernel launch failed");
-  cudaEventDestroy(start);  cudaEventDestroy(stop);
 
   // transfer result back to CPU
   if (cudaSuccess != cudaMemcpy(&error, errl, sizeof(int), cudaMemcpyDeviceToHost)) fprintf(stderr, "copying of err from device failed\n");  CudaTest("err copy from device failed");
@@ -740,11 +714,9 @@ int init(float* points, int num_points) {
   if (cudaSuccess != cudaMemcpy(accy, accyl, sizeof(float) * nbodies, cudaMemcpyDeviceToHost)) fprintf(stderr, "copying of accy from device failed\n");  CudaTest("accy copy from device failed");
 
   // print output
-  // for (i = 0; i < nbodies; i++) {
-  printf("GPU: \n");
-  for (int j = 0; j < 10; j++) {
-    printf("%.2e %.2e\n", accx[j], accy[j]);
-  }
+  // printf("GPU: \n");
+  // for (int j = 0; j < 10; j++) {
+  //   printf("%.2e %.2e\n", accx[j], accy[j]);
   // }
 
   free(mass);

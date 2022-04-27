@@ -22,7 +22,7 @@ void init(float* points, int num_points);
 // Allocate memory on host and device.
 BHTree::BHTree() {}
 
-BHTree::~BHTree() { cudaDeviceSynchronize(); }
+BHTree::~BHTree() {}
 
 void BHTree::compute_nonedge_forces(float* points, int num_points) {
     init(points, num_points); 
