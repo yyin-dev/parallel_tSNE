@@ -37,6 +37,8 @@ Author: Martin Burtscher
 #include <time.h>
 #include <cuda.h>
 
+#include <thrust/device_vector.h>
+#include <thrust/reduce.h>
 
 // thread count
 #define THREADS1 512  /* must be a power of 2 */
@@ -60,11 +62,11 @@ Author: Martin Burtscher
 #define DEBGREE 4
 
 // Remove for profiling/benchmarking
-#define CHECK_ERROR
+// #define CHECK_ERROR
 
 // TODO:
 // [X] Octree -> Quadtree
-// [] sumQ
+// [X] sumQ
 // [] CPU (+) + GPU (-) integration 
 // [] ISPC & OpenMP + CUDA
 // [] Perf analysis (after 30th)
@@ -96,7 +98,7 @@ __constant__ volatile float *massd, *posxd, *posyd, *accxd, *accyd;
 __constant__ volatile float *maxxd, *maxyd, *minxd, *minyd;
 __constant__ volatile int *errd, *sortd, *childd, *countd, *startd;
 
-__device__ volatile int stepd, bottomd, maxdepthd, blkcntd;
+__device__ volatile int bottomd, maxdepthd, blkcntd;
 __device__ volatile float radiusd;
 
 
@@ -107,7 +109,6 @@ __device__ volatile float radiusd;
 __global__ void InitializationKernel()
 {
   *errd = 0;
-  stepd = -1;
   maxdepthd = 1;
   blkcntd = 0;
 }
@@ -190,8 +191,6 @@ void BoundingBoxKernel()
       posyd[k] = (miny + maxy) * 0.5f;
       k *= DEBGREE;
       for (i = 0; i < DEBGREE; i++) childd[k + i] = -1;
-
-      stepd++;
     }
   }
 }
@@ -446,10 +445,10 @@ void SortKernel()
 
 __global__
 // __launch_bounds__(THREADS5, FACTOR5)
-void ForceCalculationKernel()
+void ForceCalculationKernel(volatile float* qd)
 {
   register int i, j, k, n, depth, base, sbase, diff, t;
-  register float px, py, ax, ay, dx, dy, tmp;
+  register float px, py, ax, ay, dx, dy, tmp, mult, q;
   __shared__ volatile int pos[MAXDEPTH * THREADS5/WARPSIZE], node[MAXDEPTH * THREADS5/WARPSIZE];
   __shared__ float dq[MAXDEPTH * THREADS5/WARPSIZE];
 
@@ -489,6 +488,7 @@ void ForceCalculationKernel()
 
       ax = 0.0f;
       ay = 0.0f;
+      q = 0.0f;
 
       // initialize iteration stack, i.e., push root node onto stack
       depth = j;
@@ -512,9 +512,10 @@ void ForceCalculationKernel()
             tmp = dx*dx + dy*dy;  // compute distance squared (plus softening)
             if ((n < nbodiesd) || __all(tmp >= dq[depth])) {  // check if all threads agree that cell is far enough away (or is a body)
               tmp = 1 / (1 + tmp);
-              tmp = massd[n] * tmp * tmp;
-              ax += dx * tmp;
-              ay += dy * tmp;
+              q += massd[n] * tmp;
+              mult = massd[n] * tmp * tmp;
+              ax += dx * mult;
+              ay += dy * mult;
             } else {
               // push cell onto stack
               depth++;
@@ -533,6 +534,7 @@ void ForceCalculationKernel()
       // save computed acceleration
       accxd[i] = ax;
       accyd[i] = ay;
+      qd[i] = q - 1.0f; // subtract 1 for self interaction 
     }
   }
 }
@@ -541,8 +543,7 @@ void ForceCalculationKernel()
 
 /******************************************************************************/
 
-static void CudaTest(const char *msg)
-{
+void CudaTest(const char *msg) {
 #ifdef CHECK_ERROR
   cudaError_t e;
 
@@ -637,6 +638,7 @@ int init(float* points, int num_points) {
     posy[i] = points[2 * i + 1];
   }
 
+  // Allocate memory on device
   if (cudaSuccess != cudaMalloc((void **)&errl, sizeof(int))) fprintf(stderr, "could not allocate errd\n");  CudaTest("couldn't allocate errd");
   if (cudaSuccess != cudaMalloc((void **)&childl, sizeof(int) * (nnodes+1) * DEBGREE)) fprintf(stderr, "could not allocate childd\n");  CudaTest("couldn't allocate childd");
   if (cudaSuccess != cudaMalloc((void **)&massl, sizeof(float) * (nnodes+1))) fprintf(stderr, "could not allocate massd\n");  CudaTest("couldn't allocate massd");
@@ -644,18 +646,16 @@ int init(float* points, int num_points) {
   if (cudaSuccess != cudaMalloc((void **)&posyl, sizeof(float) * (nnodes+1))) fprintf(stderr, "could not allocate posyd\n");  CudaTest("couldn't allocate posyd");
   if (cudaSuccess != cudaMalloc((void **)&countl, sizeof(int) * (nnodes+1))) fprintf(stderr, "could not allocate countd\n");  CudaTest("couldn't allocate countd");
   if (cudaSuccess != cudaMalloc((void **)&startl, sizeof(int) * (nnodes+1))) fprintf(stderr, "could not allocate startd\n");  CudaTest("couldn't allocate startd");
-
-  // alias arrays
-  int inc = (nbodies + WARPSIZE - 1) / WARPSIZE * WARPSIZE;
-
-  accxl = (float *)childl;
-  accyl = (float *)&childl[inc];
-  sortl = (int *)&childl[2*inc];
-
   if (cudaSuccess != cudaMalloc((void **)&maxyl, sizeof(float) * blocks)) fprintf(stderr, "could not allocate maxyd\n");  CudaTest("couldn't allocate maxyd");
   if (cudaSuccess != cudaMalloc((void **)&maxxl, sizeof(float) * blocks)) fprintf(stderr, "could not allocate maxxd\n");  CudaTest("couldn't allocate maxxd");
   if (cudaSuccess != cudaMalloc((void **)&minxl, sizeof(float) * blocks)) fprintf(stderr, "could not allocate minxd\n");  CudaTest("couldn't allocate minxd");
   if (cudaSuccess != cudaMalloc((void **)&minyl, sizeof(float) * blocks)) fprintf(stderr, "could not allocate minyd\n");  CudaTest("couldn't allocate minyd");
+
+  // alias arrays
+  int inc = (nbodies + WARPSIZE - 1) / WARPSIZE * WARPSIZE;
+  accxl = (float *)childl;
+  accyl = (float *)&childl[inc];
+  sortl = (int *)&childl[2*inc];
 
   // copy symbol (__constant__)
   if (cudaSuccess != cudaMemcpyToSymbol(nnodesd, &nnodes, sizeof(int))) fprintf(stderr, "copying of nnodes to device failed\n");  CudaTest("nnode copy to device failed");
@@ -677,7 +677,7 @@ int init(float* points, int num_points) {
   if (cudaSuccess != cudaMemcpyToSymbol(maxyd, &maxyl, sizeof(void*))) fprintf(stderr, "copying of maxyl to device failed\n");  CudaTest("maxyl copy to device failed");
   if (cudaSuccess != cudaMemcpyToSymbol(minxd, &minxl, sizeof(void*))) fprintf(stderr, "copying of minxl to device failed\n");  CudaTest("minxl copy to device failed");
   if (cudaSuccess != cudaMemcpyToSymbol(minyd, &minyl, sizeof(void*))) fprintf(stderr, "copying of minyl to device failed\n");  CudaTest("minyl copy to device failed");
-  
+
   // Copy data
   if (cudaSuccess != cudaMemcpy(massl, mass, sizeof(float) * nbodies, cudaMemcpyHostToDevice)) fprintf(stderr, "copying of mass to device failed\n");  CudaTest("mass copy to device failed");
   if (cudaSuccess != cudaMemcpy(posxl, posx, sizeof(float) * nbodies, cudaMemcpyHostToDevice)) fprintf(stderr, "copying of posx to device failed\n");  CudaTest("posx copy to device failed");
@@ -699,8 +699,13 @@ int init(float* points, int num_points) {
   SortKernel<<<blocks * FACTOR4, THREADS4>>>();
   CudaTest("kernel 4 launch failed");
 
-  ForceCalculationKernel<<<blocks * FACTOR5, THREADS5>>>();
+  thrust::device_vector<float> qd(nnodes + 1);
+  ForceCalculationKernel<<<blocks * FACTOR5, THREADS5>>>(thrust::raw_pointer_cast(qd.data()));
   CudaTest("kernel 5 launch failed");
+  float sumq = thrust::reduce(qd.begin(), qd.end(), 0.0f, thrust::plus<float>());
+
+  // wait for kernels to finish
+  cudaDeviceSynchronize();
 
   // transfer result back to CPU
   if (cudaSuccess != cudaMemcpy(&error, errl, sizeof(int), cudaMemcpyDeviceToHost)) fprintf(stderr, "copying of err from device failed\n");  CudaTest("err copy from device failed");
@@ -714,10 +719,11 @@ int init(float* points, int num_points) {
   if (cudaSuccess != cudaMemcpy(accy, accyl, sizeof(float) * nbodies, cudaMemcpyDeviceToHost)) fprintf(stderr, "copying of accy from device failed\n");  CudaTest("accy copy from device failed");
 
   // print output
-  // printf("GPU: \n");
-  // for (int j = 0; j < 10; j++) {
-  //   printf("%.2e %.2e\n", accx[j], accy[j]);
-  // }
+  printf("GPU: \n");
+  for (int j = 0; j < 10; j++) {
+    printf("%.2e %.2e\n", accx[j], accy[j]);
+  }
+  printf("sumq: %f\n", sumq);
 
   free(mass);
   free(posx);
