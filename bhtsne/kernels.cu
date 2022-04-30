@@ -39,6 +39,7 @@ Author: Martin Burtscher
 
 #include <thrust/device_vector.h>
 #include <thrust/reduce.h>
+#include <thrust/execution_policy.h>
 
 // thread count
 #define THREADS1 512  /* must be a power of 2 */
@@ -94,13 +95,14 @@ Author: Martin Burtscher
 // 3*(P + WARPSIZE) <= 4P holds as long as P >= 3*WARPSIZE.
 
 __constant__ int nnodesd, nbodiesd;
-__constant__ float dtimed, dthfd, itolsqd;
+__constant__ float itolsqd;
 __constant__ volatile float *massd, *posxd, *posyd, *accxd, *accyd;
 __constant__ volatile float *maxxd, *maxyd, *minxd, *minyd;
 __constant__ volatile int *errd, *sortd, *childd, *countd, *startd;
 
 __device__ volatile int bottomd, maxdepthd, blkcntd;
 __device__ volatile float radiusd;
+__device__ volatile float sum_q_d;
 
 
 /******************************************************************************/
@@ -535,7 +537,7 @@ void ForceCalculationKernel(volatile float* qd)
       // save computed acceleration
       accxd[i] = ax;
       accyd[i] = ay;
-      qd[i] = q - 1.0f; // subtract 1 for self interaction 
+      qd[i] = q - 1.0f; // subtract 1 for self interaction
     }
   }
 }
@@ -598,7 +600,7 @@ void check_params() {
 /******************************************************************************/
 
 float *mass, *posx, *posy;
-float dtime, dthf, itolsq;
+float itolsq;
 
 int *errl, *sortl, *childl, *countl, *startl;
 float *massl;
@@ -607,9 +609,9 @@ float *accxl, *accyl;
 float *maxxl, *maxyl;
 float *minxl, *minyl;
 
-void init_cuda(int num_points) {
-  dtime = 0.025;  dthf = dtime * 0.5f;
-  itolsq = 1.0f / (0.5 * 0.5);
+
+void init_cuda(int num_points, float theta) {
+  itolsq = 1.0f / (theta * theta);
 
   int blocks = 32;
   int nbodies = num_points;
@@ -650,8 +652,6 @@ void init_cuda(int num_points) {
   if (cudaSuccess != cudaMemcpyToSymbol(nnodesd, &nnodes, sizeof(int))) fprintf(stderr, "copying of nnodes to device failed\n");  CudaTest("nnode copy to device failed");
   if (cudaSuccess != cudaMemcpyToSymbol(nbodiesd, &nbodies, sizeof(int))) fprintf(stderr, "copying of nbodies to device failed\n");  CudaTest("nbody copy to device failed");
   if (cudaSuccess != cudaMemcpyToSymbol(errd, &errl, sizeof(void*))) fprintf(stderr, "copying of err to device failed\n");  CudaTest("err copy to device failed");
-  if (cudaSuccess != cudaMemcpyToSymbol(dtimed, &dtime, sizeof(float))) fprintf(stderr, "copying of dtime to device failed\n");  CudaTest("dtime copy to device failed");
-  if (cudaSuccess != cudaMemcpyToSymbol(dthfd, &dthf, sizeof(float))) fprintf(stderr, "copying of dthf to device failed\n");  CudaTest("dthf copy to device failed");
   if (cudaSuccess != cudaMemcpyToSymbol(itolsqd, &itolsq, sizeof(float))) fprintf(stderr, "copying of itolsq to device failed\n");  CudaTest("itolsq copy to device failed");
   if (cudaSuccess != cudaMemcpyToSymbol(sortd, &sortl, sizeof(void*))) fprintf(stderr, "copying of sortl to device failed\n");  CudaTest("sortl copy to device failed");
   if (cudaSuccess != cudaMemcpyToSymbol(countd, &countl, sizeof(void*))) fprintf(stderr, "copying of countl to device failed\n");  CudaTest("countl copy to device failed");
@@ -711,7 +711,7 @@ int compute_nonedge_forces_cuda(float* points, int num_points, float* neg_forces
   SortKernel<<<blocks * FACTOR4, THREADS4>>>();
   CudaTest("kernel 4 launch failed");
 
-  thrust::device_vector<float> qd(nnodes + 1);
+  thrust::device_vector<float> qd(nbodies);
   ForceCalculationKernel<<<blocks * FACTOR5, THREADS5>>>(thrust::raw_pointer_cast(qd.data()));
   CudaTest("kernel 5 launch failed");
   *norm = thrust::reduce(qd.begin(), qd.end(), 0.0f, thrust::plus<float>());
