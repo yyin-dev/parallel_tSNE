@@ -55,7 +55,7 @@ SplitTree::SplitTree(float* inp_data, int N, int no_dims)
     }
 
     // Construct SplitTree
-    init(NULL, inp_data, mean_Y, width_Y);
+    init(inp_data, mean_Y, width_Y);
     fill(N);
     delete[] max_Y; delete[] min_Y;
 }
@@ -66,14 +66,13 @@ SplitTree::SplitTree(SplitTree* inp_parent, float* inp_data, float* mean_Y, floa
     QT_NO_DIMS = inp_parent->QT_NO_DIMS;
     num_children = 1 << QT_NO_DIMS;
 
-    init(inp_parent, inp_data, mean_Y, width_Y);
+    init(inp_data, mean_Y, width_Y);
 }
 
 
 // Main initialization function
-void SplitTree::init(SplitTree* inp_parent, float* inp_data, float* mean_Y, float* width_Y)
+void SplitTree::init(float* inp_data, float* mean_Y, float* width_Y)
 {
-    // parent = inp_parent;
     data = inp_data;
     is_leaf = true;
     size = 0;

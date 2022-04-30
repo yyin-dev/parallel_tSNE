@@ -15,6 +15,7 @@
 #include <cstdio>
 #include <queue>
 #include <limits>
+#include "distance_ispc.h"
 
 
 #ifndef VPTREE_H
@@ -55,16 +56,21 @@ public:
     }
     int index() const { return _ind; }
     int dimensionality() const { return _D; }
-    float x(int d) const { return _x[d]; }
 };
 
-float euclidean_distance_squared(const DataPoint &t1, const DataPoint &t2) {
+// original Euclidean distance
+inline float regularEuclideanDistance(const float p0[], const float p1[], const int dim) {
     float dd = .0;
-    for (int d = 0; d < t1.dimensionality(); d++) {
-        float t = (t1.x(d) - t2.x(d));
+    for (int d = 0; d < dim; d++) {
+        float t = p0[d] - p1[d];
         dd += t * t;
     }
     return dd;
+}
+
+float euclidean_distance_squared(const DataPoint &t1, const DataPoint &t2) {
+    return ispc::euclideanDistance(t1._x, t2._x, t1.dimensionality());
+    // return regularEuclideanDistance(t1._x, t2._x, t1.dimensionality());
 }
 
 template<typename T, float (*distance)( const DataPoint&, const DataPoint&)>

@@ -86,10 +86,11 @@ bool loadData(const char* fileName, float** data, int* dataN, int* dataDim) {
 }
 
 // Function that saves map to our custom binary file
-void saveData(const char* fileName, float* data, int dataN, int dataDim, int numThreads) {
+void saveData(const char* fileName, const char* outDir, float* data, int dataN, int dataDim, int numThreads) {
   int fileNameLen = strlen(fileName);
-  char *outFilePath = (char *)malloc(fileNameLen + 28);
-  sprintf(outFilePath, "../outputs/tsne_%dd_%s_%d.bin", dataDim, fileName, numThreads);
+  int outDirLen = strlen(outDir);
+  char *outFilePath = (char *)malloc(fileNameLen + 28 + outDirLen);
+  sprintf(outFilePath, "%s/tsne_%dd_%s_%d.bin", outDir, dataDim, fileName, numThreads);
 
   // Open file, write first 2 integers and then the data
   FILE *file;
@@ -112,6 +113,7 @@ int main(int argc, const char *argv[]) {
   _argv = argv + 1;
 
   const char *inputFile = getOptionString("-f", nullptr);
+  const char *outputDir = getOptionString("-od", "../outputs");
   const int randSeed = getOptionInt("-r", 15618);
   const int reducedDim = getOptionInt("-d", 2);
   const int numThreads = getOptionInt("-n", 1);
@@ -149,7 +151,7 @@ int main(int argc, const char *argv[]) {
 
   // save result to file
   char* cleanFileName = getOutputFileName(inputFile);
-  saveData(cleanFileName, dimReducedData, dataN, reducedDim, numThreads);
+  saveData(cleanFileName, outputDir, dimReducedData, dataN, reducedDim, numThreads);
   free(cleanFileName);
 
   // Clean up the memory

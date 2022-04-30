@@ -26,6 +26,8 @@
 #include "vptree.h"
 #include "splittree.h"
 
+#include "gradient_ispc.h"
+
 using namespace std::chrono;
 typedef std::chrono::high_resolution_clock Clock;
 typedef std::chrono::duration<float> dsec;
@@ -79,7 +81,6 @@ void TSNE::run(float* X, int N, int D, float* Y,
     float compute_time = 0.;
     int stop_lying_iter = n_iter_early_exag, mom_switch_iter = n_iter_early_exag;
     float momentum = .5, final_momentum = .8;
-    float eta = learning_rate;
 
     // Allocate some memory
     float* dY    = (float*) malloc(N * no_dims * sizeof(float));
@@ -129,8 +130,8 @@ void TSNE::run(float* X, int N, int D, float* Y,
         fprintf(stderr, "Symmetrization takes %.4f\n", symmetrize_time);
 
     compute_time += duration_cast<dsec>(Clock::now() - compute_start).count();
-    if (verbose)
-        fprintf(stderr, "Done in %.4f seconds (sparsity = %f)!\nLearning embedding...\n", compute_time, (float) row_P[N] / ((float) N * (float) N));
+
+    fprintf(stderr, "Perplexity computed in %.4f seconds (sparsity = %f)!\nLearning embedding...\n", compute_time, (float) row_P[N] / ((float) N * (float) N));
 
     /*
         ======================
@@ -160,14 +161,16 @@ void TSNE::run(float* X, int N, int D, float* Y,
         // Compute approximate gradient
         float error = computeGradient(row_P, col_P, val_P, Y, N, no_dims, dY, theta, need_eval_error, bhtree);
 
-        for (int i = 0; i < N * no_dims; i++) {
-            // Update gains
-            gains[i] = (sign(dY[i]) != sign(uY[i])) ? (gains[i] + .2) : (gains[i] * .8 + .01);
+        // for (int i = 0; i < N * no_dims; i++) {
+        //     // Update gains
+        //     gains[i] = (sign(dY[i]) != sign(uY[i])) ? (gains[i] + .2) : (gains[i] * .8 + .01);
 
-            // Perform gradient update (with momentum and gains)
-            uY[i] = momentum * uY[i] - eta * gains[i] * dY[i];
-            Y[i] = Y[i] + uY[i];
-        }
+        //     // Perform gradient update (with momentum and gains)
+        //     uY[i] = momentum * uY[i] - eta * gains[i] * dY[i];
+        //     Y[i] = Y[i] + uY[i];
+        // }
+
+        ispc::gradientDescent(gains, dY, uY, Y, learning_rate, momentum, N * no_dims);
 
         // Make solution zero-mean
         zeroMean(Y, N, no_dims);
@@ -199,10 +202,8 @@ void TSNE::run(float* X, int N, int D, float* Y,
     if (final_error != NULL)
         *final_error = evaluateError(row_P, col_P, val_P, Y, N, no_dims, theta);
 
-    if (verbose) {
-        compute_time = duration_cast<dsec>(Clock::now() - compute_start).count();
-        printf("Fitting performed in %.4f seconds\n", compute_time);
-    }
+    compute_time = duration_cast<dsec>(Clock::now() - compute_start).count();
+    printf("Fitting performed in %.4f seconds\n", compute_time);
 
     // Clean up memory
     free(dY);
@@ -220,8 +221,8 @@ float TSNE::computeGradient(int* inp_row_P, int* inp_col_P, float* inp_val_P, fl
     // Compute all terms required for t-SNE gradient
     float* pos_f = new float[N * no_dims]();
 
-    float P_i_sum = 0.;
-    float C = 0.;
+    float P_i_sum = 0.f;
+    float C = 0.f;
 
 #ifdef _OPENMP
     #pragma omp parallel for reduction(+:P_i_sum,C)
@@ -229,26 +230,37 @@ float TSNE::computeGradient(int* inp_row_P, int* inp_col_P, float* inp_val_P, fl
     for (int n = 0; n < N; n++) {
         // Edge forces
         int ind1 = n * no_dims;
-        for (int i = inp_row_P[n]; i < inp_row_P[n + 1]; i++) {
 
-            // Compute pairwise distance and Q-value
-            float D = .0;
-            int ind2 = inp_col_P[i] * no_dims;
-            for (int d = 0; d < no_dims; d++) {
-                float t = Y[ind1 + d] - Y[ind2 + d];
-                D += t * t;
-            }
+        if (no_dims == 2) {
+            // run the faster ISPC routine
+            float localP_i_sum, localC;
+            ispc::updateEdgeForces2d(inp_row_P[n], inp_row_P[n + 1], ind1,
+                inp_col_P, inp_val_P, Y, eval_error, pos_f,
+                &localP_i_sum, &localC);
+            P_i_sum += localP_i_sum;
+            C += localC;
+        } else {
+            // fall back to regular code
+            for (int i = inp_row_P[n]; i < inp_row_P[n + 1]; i++) {
+                // Compute pairwise distance and Q-value
+                float D = .0;
+                int ind2 = inp_col_P[i] * no_dims;
+                for (int d = 0; d < no_dims; d++) {
+                    float t = Y[ind1 + d] - Y[ind2 + d];
+                    D += t * t;
+                }
 
-            // Sometimes we want to compute error on the go
-            if (eval_error) {
-                P_i_sum += inp_val_P[i];
-                C += inp_val_P[i] * log((inp_val_P[i] + FLT_MIN) / ((1.0 / (1.0 + D)) + FLT_MIN));
-            }
+                // Sometimes we want to compute error on the go
+                if (eval_error) {
+                    P_i_sum += inp_val_P[i];
+                    C += inp_val_P[i] * log((inp_val_P[i] + FLT_MIN) / ((1.0 / (1.0 + D)) + FLT_MIN));
+                }
 
-            D = inp_val_P[i] / (1.0 + D);
-            // Sum positive force
-            for (int d = 0; d < no_dims; d++) {
-                pos_f[ind1 + d] += D * (Y[ind1 + d] - Y[ind2 + d]);
+                D = inp_val_P[i] / (1.0 + D);
+                // Sum positive force
+                for (int d = 0; d < no_dims; d++) {
+                    pos_f[ind1 + d] += D * (Y[ind1 + d] - Y[ind2 + d]);
+                }
             }
         }
     }
@@ -380,7 +392,7 @@ void TSNE::computeGaussianPerplexity(float* X, int N, int D, int** _row_P, int**
 
     // Loop over all points to find nearest neighbors
     if (verbose)
-        fprintf(stderr, "Building tree...\n");
+        fprintf(stderr, "Computing perplexity with nearest neighbors...\n");
 
     int steps_completed = 0;
     const int log_freq = 5;
@@ -459,17 +471,18 @@ void TSNE::computeGaussianPerplexity(float* X, int N, int D, int** _row_P, int**
         }
 
         // Print progress
+        if (verbose) {
 #ifdef _OPENMP
         #pragma omp atomic
 #endif
         ++steps_completed;
 
-        if (verbose && steps_completed % (N / log_freq) == 0)
-        {
+        if (steps_completed % (N / log_freq) == 0) {
 #ifdef _OPENMP
             #pragma omp critical
 #endif
             fprintf(stderr, " - point %d of %d\n", steps_completed, N);
+            }
         }
     }
 
