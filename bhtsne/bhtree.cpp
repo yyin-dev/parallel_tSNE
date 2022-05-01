@@ -25,13 +25,14 @@ void cleanup_cuda();
 // Allocate memory on host and device.
 BHTree::BHTree(int num_points, float theta) {
     init_cuda(num_points, theta);
+    BHTree::num_points = num_points;
 }
 
 BHTree::~BHTree() {
     cleanup_cuda();
 }
 
-void BHTree::compute_nonedge_forces(float* points, int num_points, float* neg_forces, float* norm) {
-    int ret_val = compute_nonedge_forces_cuda(points, num_points, neg_forces, norm);
+void BHTree::compute_nonedge_forces(float* points, float* neg_forces, float* norm) {
+    int ret_val = compute_nonedge_forces_cuda(points, BHTree::num_points, neg_forces, norm);
     assert(ret_val == 0);
 }

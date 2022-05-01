@@ -65,14 +65,6 @@ Author: Martin Burtscher
 // Remove for profiling/benchmarking
 // #define CHECK_ERROR
 
-// TODO:
-// [X] Octree -> Quadtree
-// [X] sumQ
-// [X] CPU (+) + GPU (-) integration 
-// [] GPU & CPU parallel
-// [] ISPC & OpenMP + CUDA
-// [] Perf analysis (after 30th)
-
 
 /******************************************************************************/
 
@@ -102,7 +94,6 @@ __constant__ volatile int *errd, *sortd, *childd, *countd, *startd;
 
 __device__ volatile int bottomd, maxdepthd, blkcntd;
 __device__ volatile float radiusd;
-__device__ volatile float sum_q_d;
 
 
 /******************************************************************************/
@@ -714,10 +705,7 @@ int compute_nonedge_forces_cuda(float* points, int num_points, float* neg_forces
   thrust::device_vector<float> qd(nbodies);
   ForceCalculationKernel<<<blocks * FACTOR5, THREADS5>>>(thrust::raw_pointer_cast(qd.data()));
   CudaTest("kernel 5 launch failed");
-  *norm = thrust::reduce(qd.begin(), qd.end(), 0.0f, thrust::plus<float>());
-
-  // wait for kernels to finish
-  cudaDeviceSynchronize();
+  *norm = thrust::reduce(thrust::device, qd.begin(), qd.end(), 0.0f, thrust::plus<float>());
 
   // transfer result back to CPU
   if (cudaSuccess != cudaMemcpy(&error, errl, sizeof(int), cudaMemcpyDeviceToHost)) fprintf(stderr, "copying of err from device failed\n");  CudaTest("err copy from device failed");

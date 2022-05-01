@@ -228,7 +228,7 @@ float TSNE::computeGradient(int* inp_row_P, int* inp_col_P, float* inp_val_P, fl
 
 #ifndef NEG_FORCE_CPU
     // GPU
-    bhtree->compute_nonedge_forces(Y, N, neg_f, &sum_Q);
+    bhtree->compute_nonedge_forces(Y, neg_f, &sum_Q);
 #else
     // CPU
     SplitTree* tree = new SplitTree(Y, N, no_dims);
