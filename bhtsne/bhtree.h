@@ -1,6 +1,6 @@
 class BHTree {
    private:
-    float num_points;
+    int num_points;
 
    public:
     BHTree(int num_points, float theta);
