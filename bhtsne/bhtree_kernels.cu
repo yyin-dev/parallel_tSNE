@@ -47,8 +47,9 @@ Author: Martin Burtscher
 #define THREADS4 256
 #define THREADS5 256
 
-// RTX 2080 Ti has 68 SMs
-#define NUM_SM 68
+// RTX 2080 Ti has 68 SMs with 64 CUDA cores each
+// seems that 17 should saturate all CUDA cores with 256 threads
+#define GRID_DIM 17
 
 // block count = factor * #SMs
 #define FACTOR1 1
@@ -605,7 +606,7 @@ void init_cuda(int nbodies, float theta) {
   itolsq = 1.0f / (theta * theta);
 
   int nnodes = nbodies * 2;
-  if (nnodes < 1024*NUM_SM) nnodes = 1024*NUM_SM;
+  if (nnodes < 1024*GRID_DIM) nnodes = 1024*GRID_DIM;
   while ((nnodes & (WARPSIZE-1)) != 0) nnodes++;
   nnodes--;
 
@@ -629,10 +630,10 @@ void init_cuda(int nbodies, float theta) {
   if (cudaSuccess != cudaMalloc((void **)&posyl, sizeof(float) * (nnodes+1))) fprintf(stderr, "could not allocate posyd\n");  CudaTest("couldn't allocate posyd");
   if (cudaSuccess != cudaMalloc((void **)&countl, sizeof(int) * (nnodes+1))) fprintf(stderr, "could not allocate countd\n");  CudaTest("couldn't allocate countd");
   if (cudaSuccess != cudaMalloc((void **)&startl, sizeof(int) * (nnodes+1))) fprintf(stderr, "could not allocate startd\n");  CudaTest("couldn't allocate startd");
-  if (cudaSuccess != cudaMalloc((void **)&maxyl, sizeof(float) * NUM_SM)) fprintf(stderr, "could not allocate maxyd\n");  CudaTest("couldn't allocate maxyd");
-  if (cudaSuccess != cudaMalloc((void **)&maxxl, sizeof(float) * NUM_SM)) fprintf(stderr, "could not allocate maxxd\n");  CudaTest("couldn't allocate maxxd");
-  if (cudaSuccess != cudaMalloc((void **)&minxl, sizeof(float) * NUM_SM)) fprintf(stderr, "could not allocate minxd\n");  CudaTest("couldn't allocate minxd");
-  if (cudaSuccess != cudaMalloc((void **)&minyl, sizeof(float) * NUM_SM)) fprintf(stderr, "could not allocate minyd\n");  CudaTest("couldn't allocate minyd");
+  if (cudaSuccess != cudaMalloc((void **)&maxyl, sizeof(float) * GRID_DIM)) fprintf(stderr, "could not allocate maxyd\n");  CudaTest("couldn't allocate maxyd");
+  if (cudaSuccess != cudaMalloc((void **)&maxxl, sizeof(float) * GRID_DIM)) fprintf(stderr, "could not allocate maxxd\n");  CudaTest("couldn't allocate maxxd");
+  if (cudaSuccess != cudaMalloc((void **)&minxl, sizeof(float) * GRID_DIM)) fprintf(stderr, "could not allocate minxd\n");  CudaTest("couldn't allocate minxd");
+  if (cudaSuccess != cudaMalloc((void **)&minyl, sizeof(float) * GRID_DIM)) fprintf(stderr, "could not allocate minyd\n");  CudaTest("couldn't allocate minyd");
 
   // alias arrays
   int inc = (nbodies + WARPSIZE - 1) / WARPSIZE * WARPSIZE;
@@ -679,19 +680,19 @@ int compute_nonedge_forces_cuda(float* points, int nbodies) {
   InitializationKernel<<<1, 1>>>();
   CudaTest("kernel 0 launch failed");
 
-  BoundingBoxKernel<<<NUM_SM * FACTOR1, THREADS1>>>();
+  BoundingBoxKernel<<<GRID_DIM * FACTOR1, THREADS1>>>();
   CudaTest("kernel 1 launch failed");
 
-  TreeBuildingKernel<<<NUM_SM * FACTOR2, THREADS2>>>();
+  TreeBuildingKernel<<<GRID_DIM * FACTOR2, THREADS2>>>();
   CudaTest("kernel 2 launch failed");
 
-  SummarizationKernel<<<NUM_SM * FACTOR3, THREADS3>>>();
+  SummarizationKernel<<<GRID_DIM * FACTOR3, THREADS3>>>();
   CudaTest("kernel 3 launch failed");
 
-  SortKernel<<<NUM_SM * FACTOR4, THREADS4>>>();
+  SortKernel<<<GRID_DIM * FACTOR4, THREADS4>>>();
   CudaTest("kernel 4 launch failed");
 
-  ForceCalculationKernel<<<NUM_SM * FACTOR5, THREADS5>>>(thrust::raw_pointer_cast(qd.data()));
+  ForceCalculationKernel<<<GRID_DIM * FACTOR5, THREADS5>>>(thrust::raw_pointer_cast(qd.data()));
   CudaTest("kernel 5 launch failed");
 
   return 0;
