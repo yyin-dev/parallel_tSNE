@@ -34,7 +34,6 @@ Author: Martin Burtscher
 #include <stdlib.h>
 #include <stdio.h>
 #include <math.h>
-#include <time.h>
 #include <cuda.h>
 
 #include <thrust/device_vector.h>
@@ -47,7 +46,9 @@ Author: Martin Burtscher
 #define THREADS3 1024
 #define THREADS4 256
 #define THREADS5 256
-#define THREADS6 512
+
+// RTX 2080 Ti has 68 SMs
+#define NUM_SM 68
 
 // block count = factor * #SMs
 #define FACTOR1 1
@@ -55,12 +56,11 @@ Author: Martin Burtscher
 #define FACTOR3 1  /* must all be resident at the same time */
 #define FACTOR4 1  /* must all be resident at the same time */
 #define FACTOR5 8
-#define FACTOR6 1
 
 #define WARPSIZE 32
 #define MAXDEPTH 32
 
-#define DEBGREE 4
+#define DEGREE 4
 
 // Remove for profiling/benchmarking
 // #define CHECK_ERROR
@@ -183,8 +183,8 @@ void BoundingBoxKernel()
       startd[k] = 0;
       posxd[k] = (minx + maxx) * 0.5f;
       posyd[k] = (miny + maxy) * 0.5f;
-      k *= DEBGREE;
-      for (i = 0; i < DEBGREE; i++) childd[k + i] = -1;
+      k *= DEGREE;
+      for (i = 0; i < DEGREE; i++) childd[k + i] = -1;
     }
   }
 }
@@ -230,7 +230,7 @@ void TreeBuildingKernel()
     }
 
     // follow path to leaf cell
-    ch = childd[n*DEBGREE+j];
+    ch = childd[n*DEGREE+j];
     while (ch >= nbodiesd) {
       n = ch;
       depth++;
@@ -239,11 +239,11 @@ void TreeBuildingKernel()
       // determine which child to follow
       if (posxd[n] < px) j = 1;
       if (posyd[n] < py) j += 2;
-      ch = childd[n*DEBGREE+j];
+      ch = childd[n*DEGREE+j];
     }
 
     if (ch != -2) {  // skip if child pointer is locked and try again later
-      locked = n*DEBGREE+j;
+      locked = n*DEGREE+j;
       if (ch == atomicCAS((int *)&childd[locked], ch, -2)) {  // try to lock
         if (ch == -1) {
           // if null, just insert the new body
@@ -269,26 +269,26 @@ void TreeBuildingKernel()
             startd[cell] = -1;
             x = posxd[cell] = posxd[n] - r + x;
             y = posyd[cell] = posyd[n] - r + y;
-            for (k = 0; k < DEBGREE; k++) childd[cell*DEBGREE+k] = -1;
+            for (k = 0; k < DEGREE; k++) childd[cell*DEGREE+k] = -1;
 
             if (patch != cell) { 
-              childd[n*DEBGREE+j] = cell;
+              childd[n*DEGREE+j] = cell;
             }
 
             j = 0;
             if (x < posxd[ch]) j = 1;
             if (y < posyd[ch]) j += 2;
-            childd[cell*DEBGREE+j] = ch;
+            childd[cell*DEGREE+j] = ch;
 
             n = cell;
             j = 0;
             if (x < px) j = 1;
             if (y < py) j += 2;
 
-            ch = childd[n*DEBGREE+j];
+            ch = childd[n*DEGREE+j];
             // repeat until the two bodies are different children
           } while (ch >= 0);
-          childd[n*DEBGREE+j] = i;
+          childd[n*DEGREE+j] = i;
           __threadfence();  // push out subtree
           childd[locked] = patch;
         }
@@ -316,7 +316,7 @@ void SummarizationKernel()
 {
   register int i, j, k, ch, inc, missing, cnt, bottom;
   register float m, cm, px, py;
-  __shared__ volatile int child[THREADS3 * DEBGREE];
+  __shared__ volatile int child[THREADS3 * DEGREE];
 
   bottom = bottomd;
   inc = blockDim.x * gridDim.x;
@@ -333,13 +333,13 @@ void SummarizationKernel()
       py = 0.0f;
       cnt = 0;
       j = 0;
-      for (i = 0; i < DEBGREE; i++) {
-        ch = childd[k*DEBGREE+i];
+      for (i = 0; i < DEGREE; i++) {
+        ch = childd[k*DEGREE+i];
         if (ch >= 0) {
           if (i != j) {
             // move children to front (needed later for speed)
-            childd[k*DEBGREE+i] = -1;
-            childd[k*DEBGREE+j] = ch;
+            childd[k*DEGREE+i] = -1;
+            childd[k*DEGREE+j] = ch;
           }
           child[missing*THREADS3+threadIdx.x] = ch;  // cache missing children
           m = massd[ch];
@@ -414,8 +414,8 @@ void SortKernel()
   while (k >= bottom) {
     start = startd[k];
     if (start >= 0) {
-      for (i = 0; i < DEBGREE; i++) {
-        ch = childd[k*DEBGREE+i];
+      for (i = 0; i < DEGREE; i++) {
+        ch = childd[k*DEGREE+i];
         if (ch >= nbodiesd) {
           // child is a cell
           startd[ch] = start;  // set start ID of child
@@ -493,9 +493,9 @@ void ForceCalculationKernel(volatile float* qd)
 
       while (depth >= j) {
         // stack is not empty
-        while ((t = pos[depth]) < DEBGREE) {
+        while ((t = pos[depth]) < DEGREE) {
           // node on top of stack has more children to process
-          n = childd[node[depth]*DEBGREE+t];  // load child pointer
+          n = childd[node[depth]*DEGREE+t];  // load child pointer
           if (sbase == threadIdx.x) {
             // I'm the first thread in the warp
             pos[depth] = t + 1;
@@ -604,9 +604,8 @@ thrust::device_vector<float> qd;
 void init_cuda(int nbodies, float theta) {
   itolsq = 1.0f / (theta * theta);
 
-  int blocks = 32;
   int nnodes = nbodies * 2;
-  if (nnodes < 1024*blocks) nnodes = 1024*blocks;
+  if (nnodes < 1024*NUM_SM) nnodes = 1024*NUM_SM;
   while ((nnodes & (WARPSIZE-1)) != 0) nnodes++;
   nnodes--;
 
@@ -624,16 +623,16 @@ void init_cuda(int nbodies, float theta) {
 
   // Allocate memory on device
   if (cudaSuccess != cudaMalloc((void **)&errl, sizeof(int))) fprintf(stderr, "could not allocate errd\n");  CudaTest("couldn't allocate errd");
-  if (cudaSuccess != cudaMalloc((void **)&childl, sizeof(int) * (nnodes+1) * DEBGREE)) fprintf(stderr, "could not allocate childd\n");  CudaTest("couldn't allocate childd");
+  if (cudaSuccess != cudaMalloc((void **)&childl, sizeof(int) * (nnodes+1) * DEGREE)) fprintf(stderr, "could not allocate childd\n");  CudaTest("couldn't allocate childd");
   if (cudaSuccess != cudaMalloc((void **)&massl, sizeof(float) * (nnodes+1))) fprintf(stderr, "could not allocate massd\n");  CudaTest("couldn't allocate massd");
   if (cudaSuccess != cudaMalloc((void **)&posxl, sizeof(float) * (nnodes+1))) fprintf(stderr, "could not allocate posxd\n");  CudaTest("couldn't allocate posxd");
   if (cudaSuccess != cudaMalloc((void **)&posyl, sizeof(float) * (nnodes+1))) fprintf(stderr, "could not allocate posyd\n");  CudaTest("couldn't allocate posyd");
   if (cudaSuccess != cudaMalloc((void **)&countl, sizeof(int) * (nnodes+1))) fprintf(stderr, "could not allocate countd\n");  CudaTest("couldn't allocate countd");
   if (cudaSuccess != cudaMalloc((void **)&startl, sizeof(int) * (nnodes+1))) fprintf(stderr, "could not allocate startd\n");  CudaTest("couldn't allocate startd");
-  if (cudaSuccess != cudaMalloc((void **)&maxyl, sizeof(float) * blocks)) fprintf(stderr, "could not allocate maxyd\n");  CudaTest("couldn't allocate maxyd");
-  if (cudaSuccess != cudaMalloc((void **)&maxxl, sizeof(float) * blocks)) fprintf(stderr, "could not allocate maxxd\n");  CudaTest("couldn't allocate maxxd");
-  if (cudaSuccess != cudaMalloc((void **)&minxl, sizeof(float) * blocks)) fprintf(stderr, "could not allocate minxd\n");  CudaTest("couldn't allocate minxd");
-  if (cudaSuccess != cudaMalloc((void **)&minyl, sizeof(float) * blocks)) fprintf(stderr, "could not allocate minyd\n");  CudaTest("couldn't allocate minyd");
+  if (cudaSuccess != cudaMalloc((void **)&maxyl, sizeof(float) * NUM_SM)) fprintf(stderr, "could not allocate maxyd\n");  CudaTest("couldn't allocate maxyd");
+  if (cudaSuccess != cudaMalloc((void **)&maxxl, sizeof(float) * NUM_SM)) fprintf(stderr, "could not allocate maxxd\n");  CudaTest("couldn't allocate maxxd");
+  if (cudaSuccess != cudaMalloc((void **)&minxl, sizeof(float) * NUM_SM)) fprintf(stderr, "could not allocate minxd\n");  CudaTest("couldn't allocate minxd");
+  if (cudaSuccess != cudaMalloc((void **)&minyl, sizeof(float) * NUM_SM)) fprintf(stderr, "could not allocate minyd\n");  CudaTest("couldn't allocate minyd");
 
   // alias arrays
   int inc = (nbodies + WARPSIZE - 1) / WARPSIZE * WARPSIZE;
@@ -662,17 +661,7 @@ void init_cuda(int nbodies, float theta) {
 }
 
 int compute_nonedge_forces_cuda(float* points, int nbodies) {
-  int blocks;
-  int nnodes;
-
   cudaGetLastError();  // reset error value
-
-  blocks = 32;
-
-  nnodes = nbodies * 2;
-  if (nnodes < 1024*blocks) nnodes = 1024*blocks;
-  while ((nnodes & (WARPSIZE-1)) != 0) nnodes++; // nnodes & WARPSIZE-1 == 0
-  nnodes--;
 
   // copy data
   for (int i = 0; i < nbodies; i++) {
@@ -690,19 +679,19 @@ int compute_nonedge_forces_cuda(float* points, int nbodies) {
   InitializationKernel<<<1, 1>>>();
   CudaTest("kernel 0 launch failed");
 
-  BoundingBoxKernel<<<blocks * FACTOR1, THREADS1>>>();
+  BoundingBoxKernel<<<NUM_SM * FACTOR1, THREADS1>>>();
   CudaTest("kernel 1 launch failed");
 
-  TreeBuildingKernel<<<blocks * FACTOR2, THREADS2>>>();
+  TreeBuildingKernel<<<NUM_SM * FACTOR2, THREADS2>>>();
   CudaTest("kernel 2 launch failed");
 
-  SummarizationKernel<<<blocks * FACTOR3, THREADS3>>>();
+  SummarizationKernel<<<NUM_SM * FACTOR3, THREADS3>>>();
   CudaTest("kernel 3 launch failed");
 
-  SortKernel<<<blocks * FACTOR4, THREADS4>>>();
+  SortKernel<<<NUM_SM * FACTOR4, THREADS4>>>();
   CudaTest("kernel 4 launch failed");
 
-  ForceCalculationKernel<<<blocks * FACTOR5, THREADS5>>>(thrust::raw_pointer_cast(qd.data()));
+  ForceCalculationKernel<<<NUM_SM * FACTOR5, THREADS5>>>(thrust::raw_pointer_cast(qd.data()));
   CudaTest("kernel 5 launch failed");
 
   return 0;
