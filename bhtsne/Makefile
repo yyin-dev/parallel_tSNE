@@ -10,7 +10,7 @@ OBJS += $(OBJDIR)/tsne.o
 
 CUDA_OBJDIR = $(OBJDIR)/cuda
 CUDA_OBJS += $(CUDA_OBJDIR)/bhtree.o
-CUDA_OBJS += $(CUDA_OBJDIR)/kernels.o
+CUDA_OBJS += $(CUDA_OBJDIR)/bhtree_kernels.o
 
 # CUDA
 NVCC = nvcc -std=c++11
@@ -38,10 +38,10 @@ $(OBJDIR)/%.o: %.cpp *.h
 	$(CXX) $< $(CXXFLAGS) -c -o $@
 
 # CUDA
-$(CUDA_OBJDIR)/bhtree.o: bhtree.cpp bhtree.h 
+$(CUDA_OBJDIR)/bhtree.o: bhtree.cpp bhtree.h
 	$(NVCC) $< $(NVCCFLAGS) -c -o $@
 
-$(CUDA_OBJDIR)/kernels.o: kernels.cu
+$(CUDA_OBJDIR)/%.o: %.cu
 	$(NVCC) $< $(NVCCFLAGS) -c -o $@
 
 # ISPC
