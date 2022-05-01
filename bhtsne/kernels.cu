@@ -599,17 +599,19 @@ float *posxl, *posyl;
 float *accxl, *accyl;
 float *maxxl, *maxyl;
 float *minxl, *minyl;
+thrust::device_vector<float> qd;
 
-
-void init_cuda(int num_points, float theta) {
+void init_cuda(int nbodies, float theta) {
   itolsq = 1.0f / (theta * theta);
 
   int blocks = 32;
-  int nbodies = num_points;
   int nnodes = nbodies * 2;
   if (nnodes < 1024*blocks) nnodes = 1024*blocks;
   while ((nnodes & (WARPSIZE-1)) != 0) nnodes++;
   nnodes--;
+
+  // preallocate storage for total negative forces
+  qd = thrust::device_vector<float>(nbodies);
 
   // allocate memory
   mass = (float *)malloc(sizeof(float) * nbodies);
@@ -659,15 +661,13 @@ void init_cuda(int num_points, float theta) {
   if (cudaSuccess != cudaMemcpyToSymbol(minyd, &minyl, sizeof(void*))) fprintf(stderr, "copying of minyl to device failed\n");  CudaTest("minyl copy to device failed");
 }
 
-int compute_nonedge_forces_cuda(float* points, int num_points, float* neg_forces, float* norm) {
+int compute_nonedge_forces_cuda(float* points, int nbodies) {
   int blocks;
-  int nnodes, nbodies;
-  int error;
+  int nnodes;
 
   cudaGetLastError();  // reset error value
 
   blocks = 32;
-  nbodies = num_points;
 
   nnodes = nbodies * 2;
   if (nnodes < 1024*blocks) nnodes = 1024*blocks;
@@ -702,10 +702,17 @@ int compute_nonedge_forces_cuda(float* points, int num_points, float* neg_forces
   SortKernel<<<blocks * FACTOR4, THREADS4>>>();
   CudaTest("kernel 4 launch failed");
 
-  thrust::device_vector<float> qd(nbodies);
   ForceCalculationKernel<<<blocks * FACTOR5, THREADS5>>>(thrust::raw_pointer_cast(qd.data()));
   CudaTest("kernel 5 launch failed");
-  *norm = thrust::reduce(thrust::device, qd.begin(), qd.end(), 0.0f, thrust::plus<float>());
+
+  return 0;
+}
+
+int get_nonedge_force_from_cuda(int nbodies, float* neg_forces, float* sum_Q) {
+  int error;
+
+  // thrust::reduce is a synchronous operation. CUDA device sync not necessary
+  *sum_Q = thrust::reduce(thrust::device, qd.begin(), qd.end(), 0.0f, thrust::plus<float>());
 
   // transfer result back to CPU
   if (cudaSuccess != cudaMemcpy(&error, errl, sizeof(int), cudaMemcpyDeviceToHost)) fprintf(stderr, "copying of err from device failed\n");  CudaTest("err copy from device failed");
@@ -723,7 +730,7 @@ int compute_nonedge_forces_cuda(float* points, int num_points, float* neg_forces
     neg_forces[2*i+1] = accy[i];
   }
 
-  return 0;
+  return error;
 }
 
 void cleanup_cuda() {
@@ -743,4 +750,8 @@ void cleanup_cuda() {
   cudaFree(maxyl);
   cudaFree(minxl);
   cudaFree(minyl);
+
+  // deallocate thrust vector
+  qd.clear();
+  qd.shrink_to_fit();
 }

@@ -161,6 +161,7 @@ void TSNE::run(float* X, int N, int D, float* Y,
         // Compute approximate gradient
         float error = computeGradient(row_P, col_P, val_P, Y, N, no_dims, dY, theta, need_eval_error, bhtree);
 
+        // CPU-based gradient descent
         // for (int i = 0; i < N * no_dims; i++) {
         //     // Update gains
         //     gains[i] = (sign(dY[i]) != sign(uY[i])) ? (gains[i] + .2) : (gains[i] * .8 + .01);
@@ -228,7 +229,7 @@ float TSNE::computeGradient(int* inp_row_P, int* inp_col_P, float* inp_val_P, fl
 
 #ifndef NEG_FORCE_CPU
     // GPU
-    bhtree->compute_nonedge_forces(Y, neg_f, &sum_Q);
+    bhtree->compute_nonedge_forces(Y);
 #else
     // CPU
     SplitTree* tree = new SplitTree(Y, N, no_dims);
@@ -284,16 +285,18 @@ float TSNE::computeGradient(int* inp_row_P, int* inp_col_P, float* inp_val_P, fl
         #endif
     }
 
+    #ifdef NEG_FORCE_CPU
+        delete tree;
+    #else
+        bhtree->get_nonedge_forces(neg_f, &sum_Q);
+    #endif
+
     // Compute final t-SNE gradient
     for (int i = 0; i < N * no_dims; i++) {
         dC[i] = pos_f[i] - (neg_f[i] / sum_Q);
     }
 
     C += P_i_sum * log(sum_Q);
-
-    #ifdef NEG_FORCE_CPU
-        delete tree;
-    #endif
 
     delete[] neg_f;
     delete[] pos_f;

@@ -6,5 +6,6 @@ class BHTree {
     BHTree(int num_points, float theta);
     ~BHTree();
 
-    void compute_nonedge_forces(float* points, float* neg_forces, float* norm);
+    void compute_nonedge_forces(float* points);
+    void get_nonedge_forces(float* neg_forces, float* sum_Q);
 };
