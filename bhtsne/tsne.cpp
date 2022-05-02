@@ -24,9 +24,6 @@
 
 #include "tsne.h"
 #include "vptree.h"
-#include "splittree.h"
-
-#include "gradient_ispc.h"
 
 using namespace std::chrono;
 typedef std::chrono::high_resolution_clock Clock;
@@ -202,15 +199,14 @@ float TSNE::evaluateError(int* row_P, int* col_P, float* val_P, float* Y, int N,
 {
 
     // Get estimate of normalization term
-    SplitTree* tree = new SplitTree(Y, N, no_dims);
-
+    BHTree *bhtree = new BHTree(N, theta);
+    bhtree->points_to_device(Y);
+    bhtree->compute_nonedge_forces();
+    float sum_Q;
     float* buff = new float[no_dims]();
-    float sum_Q = .0;
-    for (int n = 0; n < N; n++) {
-        tree->computeNonEdgeForces(n, theta, buff, &sum_Q);
-    }
-    delete tree;
+    bhtree->get_nonedge_forces(buff, &sum_Q);
     delete[] buff;
+    delete bhtree;
 
     // Loop over all edges to compute t-SNE error
     float C = .0;
