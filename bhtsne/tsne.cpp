@@ -41,9 +41,10 @@ typedef std::chrono::duration<float> dsec;
     #define NUM_THREADS(N) (1)
 #endif
 
-
-void compute_edge_forces(int num_points);
+void gradient_computation(int num_points, float momentum, float learning_rate);
+void exaggerate_perplexity(int num_points, float factor);
 void init_gradients(int num_points, int *inp_row_P_host, int *inp_col_P_host, float *inp_val_P_host);
+void getFinalPositions(int num_points, float *points);
 
 /*
     Perform t-SNE
@@ -86,13 +87,13 @@ void TSNE::run(float* X, int N, int D, float* Y,
     float momentum = .5, final_momentum = .8;
 
     // Allocate some memory
-    float* dY    = (float*) malloc(N * no_dims * sizeof(float));
-    float* uY    = (float*) calloc(N * no_dims , sizeof(float));
-    float* gains = (float*) malloc(N * no_dims * sizeof(float));
-    if (dY == NULL || uY == NULL || gains == NULL) { fprintf(stderr, "Memory allocation failed!\n"); exit(1); }
-    for (int i = 0; i < N * no_dims; i++) {
-        gains[i] = 1.0;
-    }
+    // float* dY    = (float*) malloc(N * no_dims * sizeof(float));
+    // float* uY    = (float*) calloc(N * no_dims , sizeof(float));
+    // float* gains = (float*) malloc(N * no_dims * sizeof(float));
+    // if (dY == NULL || uY == NULL || gains == NULL) { fprintf(stderr, "Memory allocation failed!\n"); exit(1); }
+    // for (int i = 0; i < N * no_dims; i++) {
+    //     gains[i] = 1.0;
+    // }
 
     // Normalize input data (to prevent numerical problems)
     if (verbose)
@@ -145,11 +146,12 @@ void TSNE::run(float* X, int N, int D, float* Y,
 
 
     // Lie about the P-values
-    for (int i = 0; i < row_P[N]; i++) {
-        val_P[i] *= early_exaggeration;
-    }
+    // for (int i = 0; i < row_P[N]; i++) {
+    //     val_P[i] *= early_exaggeration;
+    // }
 
     init_gradients(N, row_P, col_P, val_P);
+    exaggerate_perplexity(N, early_exaggeration);
 
     // Initialize solution (randomly)
     for (int i = 0; i < N * no_dims; i++) {
@@ -165,7 +167,10 @@ void TSNE::run(float* X, int N, int D, float* Y,
         bool need_eval_error = (verbose && ((iter > 0 && iter % eval_interval == 0) || (iter == max_iter - 1)));
 
         // Compute approximate gradient
-        float error = computeGradient(row_P, col_P, val_P, Y, N, no_dims, dY, theta, need_eval_error, bhtree);
+        float error = 0.0;
+        bhtree->compute_nonedge_forces(Y);
+        gradient_computation(N, momentum, learning_rate);
+        // float error = computeGradient(row_P, col_P, val_P, Y, N, no_dims, dY, theta, need_eval_error, bhtree);
 
         // CPU-based gradient descent
         // for (int i = 0; i < N * no_dims; i++) {
@@ -177,16 +182,17 @@ void TSNE::run(float* X, int N, int D, float* Y,
         //     Y[i] = Y[i] + uY[i];
         // }
 
-        ispc::gradientDescent(gains, dY, uY, Y, learning_rate, momentum, N * no_dims);
+        // ispc::gradientDescent(gains, dY, uY, Y, learning_rate, momentum, N * no_dims);
 
-        // Make solution zero-mean
-        zeroMean(Y, N, no_dims);
+        // // Make solution zero-mean
+        // zeroMean(Y, N, no_dims);
 
         // Stop lying about the P-values after a while, and switch momentum
         if (iter == stop_lying_iter) {
-            for (int i = 0; i < row_P[N]; i++) {
-                val_P[i] /= early_exaggeration;
-            }
+            // for (int i = 0; i < row_P[N]; i++) {
+            //     val_P[i] /= early_exaggeration;
+            // }
+            exaggerate_perplexity(N, 1 / early_exaggeration);
         }
         if (iter == mom_switch_iter) {
             momentum = final_momentum;
@@ -205,6 +211,7 @@ void TSNE::run(float* X, int N, int D, float* Y,
         }
     }
     delete bhtree;
+    getFinalPositions(N, Y);
 
     if (final_error != NULL)
         *final_error = evaluateError(row_P, col_P, val_P, Y, N, no_dims, theta);
@@ -213,9 +220,9 @@ void TSNE::run(float* X, int N, int D, float* Y,
     printf("Fitting performed in %.4f seconds\n", compute_time);
 
     // Clean up memory
-    free(dY);
-    free(uY);
-    free(gains);
+    // free(dY);
+    // free(uY);
+    // free(gains);
 
     free(row_P); row_P = NULL;
     free(col_P); col_P = NULL;
@@ -281,7 +288,6 @@ float TSNE::computeGradient(int* inp_row_P, int* inp_col_P, float* inp_val_P, fl
         printf("%f %f\n", pos_f[2 * i], pos_f[2 * i + 1]);
     }
 
-    compute_edge_forces(N);
 
     bhtree->get_nonedge_forces(neg_f, &sum_Q);
     // Compute final t-SNE gradient

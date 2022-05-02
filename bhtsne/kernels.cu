@@ -750,10 +750,9 @@ void cleanup_cuda() {
 
 __constant__ int *inp_row_P, *inp_col_P;
 __constant__ float *inp_val_P;
-__constant__ volatile float *positiveForceXd, *positiveForceYd;
+__constant__ volatile float *dXs, *dYs, *momentumXs, *momentumYs, *gainXs, *gainYs;
 
-
-__global__ void gradientComputation() {
+__global__ void positiveForceAndGradientComputation(float sum_Q) {
   unsigned int ind1 = threadIdx.x + blockIdx.x * blockDim.x;
 
   if (ind1 < nbodiesd) {
@@ -778,15 +777,63 @@ __global__ void gradientComputation() {
     }
 
     // compute gradients based on positive and negative forces
-
-
+    dXs[ind1] = positiveForceX - (accxd[ind1] / sum_Q);
+    dYs[ind1] = positiveForceY - (accyd[ind1] / sum_Q);
   }
 }
 
+inline __device__ bool sign(float f) {
+  return f < 0;
+}
+
+
+__global__ void gradientDescent(float learning_rate, float momentum) {
+  unsigned int i = threadIdx.x + blockIdx.x * blockDim.x;
+
+  if (i < nbodiesd) {
+    // Update gains
+    gainXs[i] = (sign(dXs[i]) != sign(momentumXs[i])) ? (gainXs[i] + .2) : (gainXs[i] * .8 + .01);
+    gainYs[i] = (sign(dYs[i]) != sign(momentumYs[i])) ? (gainYs[i] + .2) : (gainYs[i] * .8 + .01);
+
+    // Perform gradient update (with momentum and gains)
+    momentumXs[i] = momentum * momentumXs[i] - learning_rate * gainXs[i] * dXs[i];
+    posxd[i] = posxd[i] + momentumXs[i];
+    momentumYs[i] = momentum * momentumYs[i] - learning_rate * gainYs[i] * dYs[i];
+    posyd[i] = posyd[i] + momentumYs[i];
+  }
+}
+
+__global__ void zeroMean(float meanX, float meanY) {
+  unsigned int i = threadIdx.x + blockIdx.x * blockDim.x;
+
+  if (i < nbodiesd) {
+    posxd[i] -= meanX;
+    posyd[i] -= meanY;
+  }
+}
+
+__global__ void initGradientStore() {
+  unsigned int i = threadIdx.x + blockIdx.x * blockDim.x;
+
+  if (i < nbodiesd) {
+    momentumXs[i] = 0.0;
+    momentumYs[i] = 0.0;
+    gainXs[i] = 1.0;
+    gainYs[i] = 1.0;
+  }
+}
+
+__global__ void exaggeratePerplexity(float factor) {
+  unsigned int i = threadIdx.x + blockIdx.x * blockDim.x;
+
+  if (i < nbodiesd) {
+    inp_val_P[i] = inp_val_P[i] * factor;
+  }
+}
 
 int *inp_row_P_l, *inp_col_P_l;
 float *inp_val_P_l;
-float *positiveForceXl, *positiveForceYl;
+float *gradientDescentStore;
 
 void init_gradients(int num_points, int *inp_row_P_host, int *inp_col_P_host, float *inp_val_P_host) {
   // neighbor array is variable depending on each point
@@ -796,8 +843,8 @@ void init_gradients(int num_points, int *inp_row_P_host, int *inp_col_P_host, fl
   cudaMalloc((void **)&inp_row_P_l, sizeof(int) * (num_points + 1));
   cudaMalloc((void **)&inp_col_P_l, sizeof(int) * neighborArraySize);
   cudaMalloc((void **)&inp_val_P_l, sizeof(float) * neighborArraySize);
-  cudaMalloc((void **)&positiveForceXl, sizeof(float) * num_points);
-  cudaMalloc((void **)&positiveForceYl, sizeof(float) * num_points);
+  // momentums and gains for each 2D point
+  cudaMalloc((void **)&gradientDescentStore, sizeof(float) * num_points * 6);
 
   // copy data to device
   cudaMemcpy(inp_row_P_l, inp_row_P_host, sizeof(int) * (num_points + 1), cudaMemcpyHostToDevice);
@@ -808,32 +855,63 @@ void init_gradients(int num_points, int *inp_row_P_host, int *inp_col_P_host, fl
   cudaMemcpyToSymbol(inp_row_P, &inp_row_P_l, sizeof(void*));
   cudaMemcpyToSymbol(inp_col_P, &inp_col_P_l, sizeof(void*));
   cudaMemcpyToSymbol(inp_val_P, &inp_val_P_l, sizeof(void*));
-  cudaMemcpyToSymbol(positiveForceXd, &positiveForceXl, sizeof(void*));
-  cudaMemcpyToSymbol(positiveForceYd, &positiveForceYl, sizeof(void*));
+
+  float * momentumXs_l = gradientDescentStore;
+  float * momentumYs_l = gradientDescentStore + num_points;
+  float * gainXs_l = gradientDescentStore + num_points * 2;
+  float * gainYs_l = gradientDescentStore + num_points * 3;
+  float * dXs_l = gradientDescentStore + num_points * 4;
+  float * dYs_l = gradientDescentStore + num_points * 5;
+  cudaMemcpyToSymbol(momentumXs, &momentumXs_l, sizeof(void*));
+  cudaMemcpyToSymbol(momentumYs, &momentumYs_l, sizeof(void*));
+  cudaMemcpyToSymbol(gainXs, &gainXs_l, sizeof(void*));
+  cudaMemcpyToSymbol(gainYs, &gainYs_l, sizeof(void*));
+  cudaMemcpyToSymbol(dXs, &dXs_l, sizeof(void*));
+  cudaMemcpyToSymbol(dYs, &dYs_l, sizeof(void*));
+
+  int gridDim = (num_points - 1) / THREADS2 + 1;
+  initGradientStore<<<gridDim, THREADS2>>>();
 }
 
 void free_gradients() {
   cudaFree(inp_row_P_l);
   cudaFree(inp_col_P_l);
   cudaFree(inp_val_P_l);
-  cudaFree(positiveForceXl);
-  cudaFree(positiveForceYl);
+  cudaFree(gradientDescentStore);
 }
 
-void compute_edge_forces(int num_points) {
+void gradient_computation(int num_points, float momentum, float learning_rate) {
   int gridDim = (num_points - 1) / THREADS2 + 1;
-  updateEdgeForces2dCuda<<<gridDim, THREADS2>>>();
+  float sum_Q = thrust::reduce(thrust::device, qd.begin(), qd.end(), 0.0f, thrust::plus<float>());
+  positiveForceAndGradientComputation<<<gridDim, THREADS2>>>(sum_Q);
+  gradientDescent<<<gridDim, THREADS2>>>(learning_rate, momentum);
+
+  // zero mean
+  float meanX = thrust::reduce(thrust::device, posxl, posxl + num_points, 0.0f, thrust::plus<float>()) / num_points;
+  float meanY = thrust::reduce(thrust::device, posyl, posyl + num_points, 0.0f, thrust::plus<float>()) / num_points;
+
+  zeroMean<<<gridDim, THREADS2>>>(meanX, meanY);
+}
+
+void exaggerate_perplexity(int num_points, float factor) {
+  int gridDim = (num_points - 1) / THREADS2 + 1;
+  exaggeratePerplexity<<<gridDim, THREADS2>>>(factor);
+}
+
+void getFinalPositions(int num_points, float *points) {
+  float *posXs = (float *)malloc(sizeof(float) * num_points);
+  float *posYs = (float *)malloc(sizeof(float) * num_points);
 
   cudaDeviceSynchronize();
-  float *posfX, *posfY;
-  posfX = (float *)malloc(sizeof(float) * num_points);
-  posfY = (float *)malloc(sizeof(float) * num_points);
+  cudaMemcpy(posXs, posxl, sizeof(float) * num_points, cudaMemcpyDeviceToHost);
+  cudaMemcpy(posYs, posyl, sizeof(float) * num_points, cudaMemcpyDeviceToHost);
 
-  cudaMemcpy(posfX, positiveForceXl, sizeof(float) * num_points, cudaMemcpyDeviceToHost);
-  cudaMemcpy(posfY, positiveForceYl, sizeof(float) * num_points, cudaMemcpyDeviceToHost);
-
-  printf("GPU\n");
-  for (int i = 0; i < 10; i++) {
-    printf("%f %f\n", posfX[i], posfY[i]);
+  for (int i = 0; i < num_points; i++) {
+    points[2 * i] = posXs[i];
+    points[2 * i + 1] = posYs[i];
   }
+
+  free(posXs);
+  free(posYs);
+  free_gradients();
 }
