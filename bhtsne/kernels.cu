@@ -754,22 +754,21 @@ __constant__ volatile float *dXs, *dYs, *momentumXs, *momentumYs, *gainXs, *gain
 
 __global__ void positiveForceAndGradientComputation(float sum_Q) {
   unsigned int ind1 = threadIdx.x + blockIdx.x * blockDim.x;
-  unsigned int threadStart = blockIdx.x * blockDim.x;
   __shared__ int inp_row_P_cached[THREADS2 + 1];
 
   if (ind1 < nbodiesd) {
     // cooperatively load inp_row_P segments into thread-block shared memory
     // no significant performance impact
-    if (ind1 == threadStart) {
+    if (threadIdx.x == 0) {
       inp_row_P_cached[0] = inp_row_P[ind1];
     }
-    inp_row_P_cached[ind1 + 1 - threadStart] = inp_row_P[ind1 + 1];
+    inp_row_P_cached[threadIdx.x + 1] = inp_row_P[ind1 + 1];
     __syncthreads();
     // compute positive forces
     float positiveForceX = 0.f;
     float positiveForceY = 0.f;
 
-    for (int i = inp_row_P_cached[ind1 - threadStart]; i < inp_row_P_cached[ind1 + 1 - threadStart]; i++) {
+    for (int i = inp_row_P_cached[threadIdx.x]; i < inp_row_P_cached[threadIdx.x + 1]; i++) {
       float D = 0.f;
 
       int ind2 = inp_col_P[i];
