@@ -162,13 +162,16 @@ void TSNE::run(float* X, int N, int D, float* Y,
     compute_time = 0.;
     compute_start = Clock::now();
     const int eval_interval = 100;
+
     BHTree *bhtree = new BHTree(N, theta);
+    bhtree->compute_nonedge_forces(Y);
+
     for (int iter = 0; iter < max_iter; iter++) {
         bool need_eval_error = (verbose && ((iter > 0 && iter % eval_interval == 0) || (iter == max_iter - 1)));
 
         // Compute approximate gradient
         float error = 0.0;
-        bhtree->compute_nonedge_forces(Y);
+        bhtree->compute_nonedge_forces();
         gradient_computation(N, momentum, learning_rate);
         // float error = computeGradient(row_P, col_P, val_P, Y, N, no_dims, dY, theta, need_eval_error, bhtree);
 
