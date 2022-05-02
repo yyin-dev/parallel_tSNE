@@ -70,7 +70,7 @@ Author: Martin Burtscher
 /******************************************************************************/
 
 // With octree (8 children):
-// childd is aliased with accxd, accyd, and sortd 
+// childd is aliased with accxd, accyd, and sortd
 // but they never use the same memory locations.
 // Explanation:
 // Let P be the number of bodies/points, N be the number of nodes.
@@ -82,7 +82,7 @@ Author: Martin Burtscher
 //
 // With quadtree (4 children):
 // 4*index+j >= 4P.
-// By default, accxd starts at 3*inc, accyd starts at 4*inc, sortd starts at 
+// By default, accxd starts at 3*inc, accyd starts at 4*inc, sortd starts at
 // 6*inc. We can shift the offsets such that accxd starts at 0, accyd starts
 // at inc, and sortd starts at 2*inc. This way, sortd ends at 3*(P+WARPSIZE).
 // 3*(P + WARPSIZE) <= 4P holds as long as P >= 3*WARPSIZE.
@@ -661,20 +661,22 @@ void init_cuda(int nbodies, float theta) {
   if (cudaSuccess != cudaMemcpyToSymbol(minyd, &minyl, sizeof(void*))) fprintf(stderr, "copying of minyl to device failed\n");  CudaTest("minyl copy to device failed");
 }
 
-int compute_nonedge_forces_cuda(float* points, int nbodies) {
-  cudaGetLastError();  // reset error value
-
+void to_device(float* points, int nbodies) {
   // copy data
   for (int i = 0; i < nbodies; i++) {
     mass[i] = 1.0;
     posx[i] = points[2 * i];
     posy[i] = points[2 * i + 1];
   }
-  
+
   // Copy data
   if (cudaSuccess != cudaMemcpy(massl, mass, sizeof(float) * nbodies, cudaMemcpyHostToDevice)) fprintf(stderr, "copying of mass to device failed\n");  CudaTest("mass copy to device failed");
   if (cudaSuccess != cudaMemcpy(posxl, posx, sizeof(float) * nbodies, cudaMemcpyHostToDevice)) fprintf(stderr, "copying of posx to device failed\n");  CudaTest("posx copy to device failed");
   if (cudaSuccess != cudaMemcpy(posyl, posy, sizeof(float) * nbodies, cudaMemcpyHostToDevice)) fprintf(stderr, "copying of posy to device failed\n");  CudaTest("posy copy to device failed");
+}
+
+int compute_nonedge_forces_cuda() {
+  cudaGetLastError();  // reset error value
 
   // run timesteps (launch GPU kernels)
   InitializationKernel<<<1, 1>>>();
@@ -742,4 +744,96 @@ void cleanup_cuda() {
   // deallocate thrust vector
   qd.clear();
   qd.shrink_to_fit();
+}
+
+// postive forces gradient computation
+
+__constant__ int *inp_row_P, *inp_col_P;
+__constant__ float *inp_val_P;
+__constant__ volatile float *positiveForceXd, *positiveForceYd;
+
+
+__global__ void gradientComputation() {
+  unsigned int ind1 = threadIdx.x + blockIdx.x * blockDim.x;
+
+  if (ind1 < nbodiesd) {
+    // compute positive forces
+    float positiveForceX = 0.f;
+    float positiveForceY = 0.f;
+
+    for (int i = inp_row_P[ind1]; i < inp_row_P[ind1 + 1]; i++) {
+      float D = 0.f;
+
+      int ind2 = inp_col_P[i];
+
+      float dx = posxd[ind1] - posxd[ind2];
+      D += dx * dx;
+      float dy = posyd[ind1] - posyd[ind2];
+      D += dy * dy;
+
+      D = inp_val_P[i] / (1.0 + D);
+
+      positiveForceX += dx * D;
+      positiveForceY += dy * D;
+    }
+
+    // compute gradients based on positive and negative forces
+
+    
+  }
+}
+
+
+int *inp_row_P_l, *inp_col_P_l;
+float *inp_val_P_l;
+float *positiveForceXl, *positiveForceYl;
+
+void init_gradients(int num_points, int *inp_row_P_host, int *inp_col_P_host, float *inp_val_P_host) {
+  // neighbor array is variable depending on each point
+  int neighborArraySize = inp_row_P_host[num_points];
+
+  // malloc
+  cudaMalloc((void **)&inp_row_P_l, sizeof(int) * (num_points + 1));
+  cudaMalloc((void **)&inp_col_P_l, sizeof(int) * neighborArraySize);
+  cudaMalloc((void **)&inp_val_P_l, sizeof(float) * neighborArraySize);
+  cudaMalloc((void **)&positiveForceXl, sizeof(float) * num_points);
+  cudaMalloc((void **)&positiveForceYl, sizeof(float) * num_points);
+
+  // copy data to device
+  cudaMemcpy(inp_row_P_l, inp_row_P_host, sizeof(int) * (num_points + 1), cudaMemcpyHostToDevice);
+  cudaMemcpy(inp_col_P_l, inp_col_P_host, sizeof(int) * neighborArraySize, cudaMemcpyHostToDevice);
+  cudaMemcpy(inp_val_P_l, inp_val_P_host, sizeof(float) * neighborArraySize, cudaMemcpyHostToDevice);
+
+  // define symbols
+  cudaMemcpyToSymbol(inp_row_P, &inp_row_P_l, sizeof(void*));
+  cudaMemcpyToSymbol(inp_col_P, &inp_col_P_l, sizeof(void*));
+  cudaMemcpyToSymbol(inp_val_P, &inp_val_P_l, sizeof(void*));
+  cudaMemcpyToSymbol(positiveForceXd, &positiveForceXl, sizeof(void*));
+  cudaMemcpyToSymbol(positiveForceYd, &positiveForceYl, sizeof(void*));
+}
+
+void free_gradients() {
+  cudaFree(inp_row_P_l);
+  cudaFree(inp_col_P_l);
+  cudaFree(inp_val_P_l);
+  cudaFree(positiveForceXl);
+  cudaFree(positiveForceYl);
+}
+
+void compute_edge_forces(int num_points) {
+  int gridDim = (num_points - 1) / THREADS2 + 1;
+  updateEdgeForces2dCuda<<<gridDim, THREADS2>>>();
+
+  cudaDeviceSynchronize();
+  float *posfX, *posfY;
+  posfX = (float *)malloc(sizeof(float) * num_points);
+  posfY = (float *)malloc(sizeof(float) * num_points);
+
+  cudaMemcpy(posfX, positiveForceXl, sizeof(float) * num_points, cudaMemcpyDeviceToHost);
+  cudaMemcpy(posfY, positiveForceYl, sizeof(float) * num_points, cudaMemcpyDeviceToHost);
+
+  printf("GPU\n");
+  for (int i = 0; i < 10; i++) {
+    printf("%f %f\n", posfX[i], posfY[i]);
+  }
 }

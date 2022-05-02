@@ -42,6 +42,9 @@ typedef std::chrono::duration<float> dsec;
 #endif
 
 
+void compute_edge_forces(int num_points);
+void init_gradients(int num_points, int *inp_row_P_host, int *inp_col_P_host, float *inp_val_P_host);
+
 /*
     Perform t-SNE
         X -- float matrix of size [N, D]
@@ -110,7 +113,8 @@ void TSNE::run(float* X, int N, int D, float* Y,
 
     // Compute asymmetric pairwise input similarities
     auto perplexity_start = Clock::now();
-    computeGaussianPerplexity(X, N, D, &row_P, &col_P, &val_P, perplexity, (int) (3 * perplexity), verbose);
+    int num_neighbors = (int) (3 * perplexity);
+    computeGaussianPerplexity(X, N, D, &row_P, &col_P, &val_P, perplexity, num_neighbors, verbose);
     float perplexity_time = duration_cast<dsec>(Clock::now() - perplexity_start).count();
     if (verbose)
         fprintf(stderr, "Computing asymmetric pairwise similarities takes %.4f\n", perplexity_time);
@@ -144,6 +148,8 @@ void TSNE::run(float* X, int N, int D, float* Y,
     for (int i = 0; i < row_P[N]; i++) {
         val_P[i] *= early_exaggeration;
     }
+
+    init_gradients(N, row_P, col_P, val_P);
 
     // Initialize solution (randomly)
     for (int i = 0; i < N * no_dims; i++) {
@@ -227,14 +233,7 @@ float TSNE::computeGradient(int* inp_row_P, int* inp_col_P, float* inp_val_P, fl
     float P_i_sum = 0.f;
     float C = 0.f;
 
-#ifndef NEG_FORCE_CPU
-    // GPU
     bhtree->compute_nonedge_forces(Y);
-#else
-    // CPU
-    SplitTree* tree = new SplitTree(Y, N, no_dims);
-#endif
-
 
 #ifdef _OPENMP
     #pragma omp parallel for reduction(+:P_i_sum,C,sum_Q)
@@ -242,7 +241,6 @@ float TSNE::computeGradient(int* inp_row_P, int* inp_col_P, float* inp_val_P, fl
     for (int n = 0; n < N; n++) {
         // Edge forces
         int ind1 = n * no_dims;
-
         if (no_dims == 2) {
             // run the faster ISPC routine
             float localP_i_sum, localC;
@@ -276,21 +274,16 @@ float TSNE::computeGradient(int* inp_row_P, int* inp_col_P, float* inp_val_P, fl
             }
         }
 
-        #ifdef NEG_FORCE_CPU
-
-        float q;
-        tree->computeNonEdgeForces(n, theta, neg_f + n * no_dims, &q);
-        sum_Q += q;
-
-        #endif
     }
 
-    #ifdef NEG_FORCE_CPU
-        delete tree;
-    #else
-        bhtree->get_nonedge_forces(neg_f, &sum_Q);
-    #endif
+    printf("CPU\n");
+    for (int i = 0; i < 10; i++) {
+        printf("%f %f\n", pos_f[2 * i], pos_f[2 * i + 1]);
+    }
 
+    compute_edge_forces(N);
+
+    bhtree->get_nonedge_forces(neg_f, &sum_Q);
     // Compute final t-SNE gradient
     for (int i = 0; i < N * no_dims; i++) {
         dC[i] = pos_f[i] - (neg_f[i] / sum_Q);

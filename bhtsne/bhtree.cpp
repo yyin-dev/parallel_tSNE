@@ -18,7 +18,8 @@ inline void gpu_assert(cudaError_t code, const char *file, int line, bool abort 
 
 // defined in kernels.cu
 void init_cuda(int num_points, float theta);
-int compute_nonedge_forces_cuda(float* points, int num_points);
+void to_device(float* points, int num_points);
+int compute_nonedge_forces_cuda();
 int get_nonedge_force_from_cuda(int num_points, float* neg_forces, float* sum_Q);
 void cleanup_cuda();
 
@@ -34,7 +35,13 @@ BHTree::~BHTree() {
 }
 
 void BHTree::compute_nonedge_forces(float* points) {
-    int ret_val = compute_nonedge_forces_cuda(points, BHTree::num_points);
+    to_device(points, BHTree::num_points);
+    int ret_val = compute_nonedge_forces_cuda();
+    assert(ret_val == 0);
+}
+
+void BHTree::compute_nonedge_forces() {
+    int ret_val = compute_nonedge_forces_cuda();
     assert(ret_val == 0);
 }
 
