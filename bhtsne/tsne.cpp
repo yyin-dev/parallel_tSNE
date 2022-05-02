@@ -86,15 +86,6 @@ void TSNE::run(float* X, int N, int D, float* Y,
     int stop_lying_iter = n_iter_early_exag, mom_switch_iter = n_iter_early_exag;
     float momentum = .5, final_momentum = .8;
 
-    // Allocate some memory
-    // float* dY    = (float*) malloc(N * no_dims * sizeof(float));
-    // float* uY    = (float*) calloc(N * no_dims , sizeof(float));
-    // float* gains = (float*) malloc(N * no_dims * sizeof(float));
-    // if (dY == NULL || uY == NULL || gains == NULL) { fprintf(stderr, "Memory allocation failed!\n"); exit(1); }
-    // for (int i = 0; i < N * no_dims; i++) {
-    //     gains[i] = 1.0;
-    // }
-
     // Normalize input data (to prevent numerical problems)
     if (verbose)
         fprintf(stderr, "Computing input similarities...\n");
@@ -145,12 +136,10 @@ void TSNE::run(float* X, int N, int D, float* Y,
     */
 
 
-    // Lie about the P-values
-    // for (int i = 0; i < row_P[N]; i++) {
-    //     val_P[i] *= early_exaggeration;
-    // }
-
+    BHTree *bhtree = new BHTree(N, theta);
+    // gradient kernels make use of bhtree variables
     init_gradients(N, row_P, col_P, val_P);
+    // lie about P values
     exaggerate_perplexity(N, early_exaggeration);
 
     // Initialize solution (randomly)
@@ -163,39 +152,19 @@ void TSNE::run(float* X, int N, int D, float* Y,
     compute_start = Clock::now();
     const int eval_interval = 100;
 
-    BHTree *bhtree = new BHTree(N, theta);
     bhtree->compute_nonedge_forces(Y);
 
     for (int iter = 0; iter < max_iter; iter++) {
         bool need_eval_error = (verbose && ((iter > 0 && iter % eval_interval == 0) || (iter == max_iter - 1)));
 
-        // Compute approximate gradient
-        float error = 0.0;
+        // Compute approximate gradient using GPU
+        float error = -1.0f; // error not calculated from GPU
         bhtree->compute_nonedge_forces();
         gradient_computation(N, momentum, learning_rate);
-        // float error = computeGradient(row_P, col_P, val_P, Y, N, no_dims, dY, theta, need_eval_error, bhtree);
-
-        // CPU-based gradient descent
-        // for (int i = 0; i < N * no_dims; i++) {
-        //     // Update gains
-        //     gains[i] = (sign(dY[i]) != sign(uY[i])) ? (gains[i] + .2) : (gains[i] * .8 + .01);
-
-        //     // Perform gradient update (with momentum and gains)
-        //     uY[i] = momentum * uY[i] - eta * gains[i] * dY[i];
-        //     Y[i] = Y[i] + uY[i];
-        // }
-
-        // ispc::gradientDescent(gains, dY, uY, Y, learning_rate, momentum, N * no_dims);
-
-        // // Make solution zero-mean
-        // zeroMean(Y, N, no_dims);
 
         // Stop lying about the P-values after a while, and switch momentum
         if (iter == stop_lying_iter) {
-            // for (int i = 0; i < row_P[N]; i++) {
-            //     val_P[i] /= early_exaggeration;
-            // }
-            exaggerate_perplexity(N, 1 / early_exaggeration);
+            exaggerate_perplexity(N, 1.f / early_exaggeration);
         }
         if (iter == mom_switch_iter) {
             momentum = final_momentum;
@@ -213,8 +182,9 @@ void TSNE::run(float* X, int N, int D, float* Y,
             compute_time = time_elapsed;
         }
     }
-    delete bhtree;
+
     getFinalPositions(N, Y);
+    delete bhtree;
 
     if (final_error != NULL)
         *final_error = evaluateError(row_P, col_P, val_P, Y, N, no_dims, theta);
@@ -222,89 +192,10 @@ void TSNE::run(float* X, int N, int D, float* Y,
     compute_time = duration_cast<dsec>(Clock::now() - compute_start).count();
     printf("Fitting performed in %.4f seconds\n", compute_time);
 
-    // Clean up memory
-    // free(dY);
-    // free(uY);
-    // free(gains);
-
     free(row_P); row_P = NULL;
     free(col_P); col_P = NULL;
     free(val_P); val_P = NULL;
 }
-
-// Compute gradient of the t-SNE cost function (using Barnes-Hut algorithm)
-float TSNE::computeGradient(int* inp_row_P, int* inp_col_P, float* inp_val_P, float* Y, int N, int no_dims, float* dC, float theta, bool eval_error, BHTree* bhtree)
-{
-    // Compute all terms required for t-SNE gradient
-    float sum_Q = 0.f;
-    float* pos_f = new float[N * no_dims]();
-    float* neg_f = new float[N * no_dims]();
-
-    float P_i_sum = 0.f;
-    float C = 0.f;
-
-    bhtree->compute_nonedge_forces(Y);
-
-#ifdef _OPENMP
-    #pragma omp parallel for reduction(+:P_i_sum,C,sum_Q)
-#endif
-    for (int n = 0; n < N; n++) {
-        // Edge forces
-        int ind1 = n * no_dims;
-        if (no_dims == 2) {
-            // run the faster ISPC routine
-            float localP_i_sum, localC;
-            ispc::updateEdgeForces2d(inp_row_P[n], inp_row_P[n + 1], ind1,
-                inp_col_P, inp_val_P, Y, eval_error, pos_f,
-                &localP_i_sum, &localC);
-            P_i_sum += localP_i_sum;
-            C += localC;
-        } else {
-            // fall back to regular code
-            for (int i = inp_row_P[n]; i < inp_row_P[n + 1]; i++) {
-                // Compute pairwise distance and Q-value
-                float D = .0;
-                int ind2 = inp_col_P[i] * no_dims;
-                for (int d = 0; d < no_dims; d++) {
-                    float t = Y[ind1 + d] - Y[ind2 + d];
-                    D += t * t;
-                }
-
-                // Sometimes we want to compute error on the go
-                if (eval_error) {
-                    P_i_sum += inp_val_P[i];
-                    C += inp_val_P[i] * log((inp_val_P[i] + FLT_MIN) / ((1.0 / (1.0 + D)) + FLT_MIN));
-                }
-
-                D = inp_val_P[i] / (1.0 + D);
-                // Sum positive force
-                for (int d = 0; d < no_dims; d++) {
-                    pos_f[ind1 + d] += D * (Y[ind1 + d] - Y[ind2 + d]);
-                }
-            }
-        }
-
-    }
-
-    printf("CPU\n");
-    for (int i = 0; i < 10; i++) {
-        printf("%f %f\n", pos_f[2 * i], pos_f[2 * i + 1]);
-    }
-
-
-    bhtree->get_nonedge_forces(neg_f, &sum_Q);
-    // Compute final t-SNE gradient
-    for (int i = 0; i < N * no_dims; i++) {
-        dC[i] = pos_f[i] - (neg_f[i] / sum_Q);
-    }
-
-    C += P_i_sum * log(sum_Q);
-
-    delete[] neg_f;
-    delete[] pos_f;
-    return C;
-}
-
 
 // Evaluate t-SNE cost function (approximately)
 float TSNE::evaluateError(int* row_P, int* col_P, float* val_P, float* Y, int N, int no_dims, float theta)
@@ -595,6 +486,10 @@ void TSNE::zeroMean(float* X, int N, int D) {
     for (int d = 0; d < D; d++) {
         mean[d] /= (float) N;
     }
+
+    // if (D == 2) {
+    //     printf("CPU: %f, %f\n", mean[0], mean[1]);
+    // }
 
     // Subtract data mean
     for (int n = 0; n < N; n++) {

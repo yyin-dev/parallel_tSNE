@@ -827,7 +827,7 @@ __global__ void exaggeratePerplexity(float factor) {
   unsigned int i = threadIdx.x + blockIdx.x * blockDim.x;
 
   if (i < nbodiesd) {
-    inp_val_P[i] = inp_val_P[i] * factor;
+    inp_val_P[i] *= factor;
   }
 }
 
@@ -883,13 +883,13 @@ void free_gradients() {
 void gradient_computation(int num_points, float momentum, float learning_rate) {
   int gridDim = (num_points - 1) / THREADS2 + 1;
   float sum_Q = thrust::reduce(thrust::device, qd.begin(), qd.end(), 0.0f, thrust::plus<float>());
+  // gradient computation
   positiveForceAndGradientComputation<<<gridDim, THREADS2>>>(sum_Q);
   gradientDescent<<<gridDim, THREADS2>>>(learning_rate, momentum);
 
   // zero mean
   float meanX = thrust::reduce(thrust::device, posxl, posxl + num_points, 0.0f, thrust::plus<float>()) / num_points;
   float meanY = thrust::reduce(thrust::device, posyl, posyl + num_points, 0.0f, thrust::plus<float>()) / num_points;
-
   zeroMean<<<gridDim, THREADS2>>>(meanX, meanY);
 }
 
