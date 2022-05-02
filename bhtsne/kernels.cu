@@ -779,7 +779,7 @@ __global__ void gradientComputation() {
 
     // compute gradients based on positive and negative forces
 
-    
+
   }
 }
 

@@ -10,7 +10,7 @@ OBJS += $(OBJDIR)/tsne.o
 
 CUDA_OBJDIR = $(OBJDIR)/cuda
 CUDA_OBJS += $(CUDA_OBJDIR)/bhtree.o
-CUDA_OBJS += $(CUDA_OBJDIR)/bhtree_kernels.o
+CUDA_OBJS += $(CUDA_OBJDIR)/kernels.o
 
 # CUDA
 NVCC = nvcc -std=c++11
