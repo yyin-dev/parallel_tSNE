@@ -152,7 +152,7 @@ void TSNE::run(float* X, int N, int D, float* Y,
     compute_start = Clock::now();
     const int eval_interval = 100;
 
-    bhtree->compute_nonedge_forces(Y);
+    bhtree->points_to_device(Y);
 
     for (int iter = 0; iter < max_iter; iter++) {
         bool need_eval_error = (verbose && ((iter > 0 && iter % eval_interval == 0) || (iter == max_iter - 1)));
@@ -183,7 +183,7 @@ void TSNE::run(float* X, int N, int D, float* Y,
         }
     }
 
-    getFinalPositions(N, Y);
+    getFinalPositions(N, Y); // requires BH-tree data on GPU
     delete bhtree;
 
     if (final_error != NULL)

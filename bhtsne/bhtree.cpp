@@ -34,10 +34,8 @@ BHTree::~BHTree() {
     cleanup_cuda();
 }
 
-void BHTree::compute_nonedge_forces(float* points) {
+void BHTree::points_to_device(float* points) {
     to_device(points, BHTree::num_points);
-    int ret_val = compute_nonedge_forces_cuda();
-    assert(ret_val == 0);
 }
 
 void BHTree::compute_nonedge_forces() {
