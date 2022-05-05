@@ -161,16 +161,6 @@ void TSNE::run(float* X, int N, int D, float* Y,
         // Compute approximate gradient
         float error = computeGradient(row_P, col_P, val_P, Y, N, no_dims, dY, theta, need_eval_error, bhtree);
 
-        // CPU-based gradient descent
-        // for (int i = 0; i < N * no_dims; i++) {
-        //     // Update gains
-        //     gains[i] = (sign(dY[i]) != sign(uY[i])) ? (gains[i] + .2) : (gains[i] * .8 + .01);
-
-        //     // Perform gradient update (with momentum and gains)
-        //     uY[i] = momentum * uY[i] - eta * gains[i] * dY[i];
-        //     Y[i] = Y[i] + uY[i];
-        // }
-
         ispc::gradientDescent(gains, dY, uY, Y, learning_rate, momentum, N * no_dims);
 
         // Make solution zero-mean
