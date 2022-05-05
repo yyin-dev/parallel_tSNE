@@ -69,7 +69,7 @@ Temporary Items
 .vscode/
 
 # PDF
-*.pdf
+# *.pdf
 
 # Java
 *.class
